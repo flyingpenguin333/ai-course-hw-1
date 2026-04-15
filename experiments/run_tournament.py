@@ -111,30 +111,24 @@ class StatCollector:
             self.total_nodes += 1  # random只评估1个局面
 
         elif self.agent_type in ['minimax', 'alphabeta']:
-            # 从agent内部获取本次搜索的节点数
-            # select_move结束后，_nodes就是本次搜索的节点数
             nodes = getattr(self.agent, '_nodes', 0)
             self.total_nodes += nodes
+            # 累计实际搜索深度
+            self.total_depth += getattr(self.agent, '_reached_depth', 0)
 
         elif self.agent_type == 'mcts':
-            # MCTS的模拟次数
             sims = getattr(self.agent, '_simulations', 0)
             self.total_nodes += sims
 
         return move
 
     def get_avg_depth(self):
-        """获取平均深度（MCTS返回None）"""
-        if self.agent_type == 'mcts':
+        """获取平均深度（MCTS返回N/A）"""
+        if self.agent_type in ['mcts', 'random']:
             return None
         if self.move_count == 0:
             return 0.0
-        # 简化处理，返回配置的最大深度
-        if self.agent_type == 'minimax':
-            return float(getattr(self.agent, 'max_depth', 2))
-        elif self.agent_type == 'alphabeta':
-            return float(getattr(self.agent, 'max_depth', 4))
-        return 0.0
+        return self.total_depth / self.move_count
 
 
 def play_game(collector1, collector2, move_limit=200, verbose=False):

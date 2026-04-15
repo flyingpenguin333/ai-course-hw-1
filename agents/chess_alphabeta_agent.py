@@ -42,11 +42,11 @@ class ChessAlphaBetaAgent:
     def select_move(self, game_state: GameState) -> Move:
         self._start_time = time.time()
         self._nodes = 0
+        self._reached_depth = 0
         self._tt.clear()
         self._history.clear()
 
         best_move = None
-        reached_depth = 0
         moves = game_state.legal_moves()
         if len(moves) == 1:
             return moves[0]
@@ -55,7 +55,7 @@ class ChessAlphaBetaAgent:
             if self._time_up(0.8):
                 break
             move, score = self._root_search(game_state, depth)
-            reached_depth = depth
+            self._reached_depth = depth
             if move is not None:
                 best_move = move
             if abs(score) >= MATE_SCORE - self.max_depth:
@@ -63,7 +63,7 @@ class ChessAlphaBetaAgent:
 
         elapsed = time.time() - self._start_time
         if self.verbose:
-            print(f"[AB] depth={reached_depth}, nodes={self._nodes}, "
+            print(f"[AB] depth={self._reached_depth}, nodes={self._nodes}, "
                   f"time={elapsed:.2f}s, move={best_move}")
         return best_move if best_move else moves[0]
 

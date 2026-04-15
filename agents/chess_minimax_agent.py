@@ -50,9 +50,9 @@ class ChessMinimaxAgent:
         """Minimax 搜索主入口"""
         self._start_time = time.time()
         self._nodes = 0
+        self._reached_depth = 0
 
         best_move = None
-        reached_depth = 0
         moves = game_state.legal_moves()
         if len(moves) == 1:
             return moves[0]
@@ -62,7 +62,7 @@ class ChessMinimaxAgent:
             if self._time_up(0.8):
                 break
             move, score = self._root_search(game_state, depth)
-            reached_depth = depth
+            self._reached_depth = depth
             if move is not None:
                 best_move = move
             if abs(score) >= MATE_SCORE - self.max_depth:
@@ -70,7 +70,7 @@ class ChessMinimaxAgent:
 
         elapsed = time.time() - self._start_time
         if self.verbose:
-            print(f"[MM] depth={reached_depth}, nodes={self._nodes}, "
+            print(f"[MM] depth={self._reached_depth}, nodes={self._nodes}, "
                   f"time={elapsed:.2f}s, move={best_move}")
         return best_move if best_move else moves[0]
 
