@@ -78,6 +78,20 @@ class Board:
                 return False
         return True
 
+    def make_move(self, move):
+        """原地执行走法，返回被吃的棋子（用于 unmake）。"""
+        piece = self._grid.pop(move.from_point)
+        captured = self._grid.pop(move.to_point, None)
+        self._grid[move.to_point] = piece
+        return captured
+
+    def unmake_move(self, move, captured):
+        """撤销走法。"""
+        piece = self._grid.pop(move.to_point)
+        self._grid[move.from_point] = piece
+        if captured is not None:
+            self._grid[move.to_point] = captured
+
     def __deepcopy__(self, memodict=None):
         copied = Board()
         copied._grid = dict(self._grid)
@@ -142,19 +156,25 @@ class GameState:
         return moves
 
     def _is_move_legal(self, move):
-        """走子后己方将不被吃、将帅不对面。"""
-        next_state = self.apply_move(move)
-        nb = next_state.board
-        if nb.generals_facing():
-            return False
-        our_general = nb.find_general(self.next_player)
-        if our_general is None:
-            return False
-        opponent = self.next_player.other
-        for pt, pc in nb.pieces_for_player(opponent):
-            if our_general in get_piece_moves(pc, pt, nb):
-                return False
-        return True
+        """走子后己方将不被吃、将帅不对面（使用 make/unmake 避免 deepcopy）。"""
+        board = self.board
+        captured = board.make_move(move)
+        legal = True
+        # 将帅对面
+        if board.generals_facing():
+            legal = False
+        else:
+            our_general = board.find_general(self.next_player)
+            if our_general is None:
+                legal = False
+            else:
+                opponent = self.next_player.other
+                for pt, pc in board.pieces_for_player(opponent):
+                    if our_general in get_piece_moves(pc, pt, board):
+                        legal = False
+                        break
+        board.unmake_move(move, captured)
+        return legal
 
     def is_over(self):
         if self.board.find_general(Player.red) is None:

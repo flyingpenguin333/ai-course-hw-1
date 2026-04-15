@@ -3,7 +3,8 @@
 
 用法：
     python play_chess.py --agent1 random --agent2 random
-    python play_chess.py --agent1 random --agent2 random --games 10 --quiet
+    python play_chess.py --agent1 alphabeta --agent2 random --games 5 --quiet
+    python play_chess.py --agent1 alphabeta --agent2 alphabeta --games 3 --quiet
 """
 
 import argparse
@@ -33,12 +34,25 @@ PIECE_CHARS = {
 def make_agent(name):
     if name == "random":
         from agents.chess_random_agent import ChessRandomAgent
-        agent = ChessRandomAgent()
-        return agent.select_move
+        return ChessRandomAgent().select_move
+    if name == "alphabeta":
+        from agents.chess_alphabeta_agent import ChessAlphaBetaAgent
+        return ChessAlphaBetaAgent(time_limit=5.0).select_move
+    if name == "alphabeta-tuned":
+        import os
+        from agents.chess_alphabeta_agent import ChessAlphaBetaAgent
+        from cchess.evaluate import EvalParams
+        params_path = os.path.join("tuning_results", "best_params.json")
+        if os.path.exists(params_path):
+            params = EvalParams.load(params_path)
+        else:
+            print(f"[WARN] {params_path} not found, using defaults")
+            params = None
+        return ChessAlphaBetaAgent(time_limit=5.0, eval_params=params).select_move
     raise ValueError(f"未知智能体: {name}")
 
 
-AGENT_NAMES = ["random"]
+AGENT_NAMES = ["random", "alphabeta", "alphabeta-tuned"]
 
 
 def print_board(game_state):
