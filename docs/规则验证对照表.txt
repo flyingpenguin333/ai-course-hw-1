@@ -1,0 +1,93 @@
+================================================================================
+中国象棋规则标准与实现对照表
+================================================================================
+
+类别          | 标准规则                      | 实现方式                          | 验证
+--------------|------------------------------|-----------------------------------|------
+【棋盘】
+棋盘尺寸      | 9x10格子                     | Board: NUM_ROWS=10, NUM_COLS=9    | OK
+红方底线      | row=0                        | 红方将帅在row=0                   | OK
+黑方底线      | row=9                        | 黑方将帅在row=9                   | OK
+河界位置      | row 4-5之间                 | crossed_river: red>=5, black<=4   | OK
+九宫范围      | rows 0-2/7-9, cols 3-5      | in_palace()函数检查               | OK
+
+【帅/将】
+移动范围      | 九宫内上下左右               | general_moves()                   | OK
+移动距离      | 一次一步                     | for dr,dc in [(±1,0),(0,±1)]     | OK
+边界限制      | 不能出九宫                   | in_palace()限制                   | OK
+
+【士/仕】
+移动范围      | 九宫内斜走                   | advisor_moves()                   | OK
+移动距离      | 一次斜走一步                 | for dr,dc in diagonals            | OK
+边界限制      | 不能出九宫                   | in_palace()限制                   | OK
+
+【象/相】
+移动方式      | 飞田字(对角2格)             | elephant_moves()                  | OK
+河界限制      | 不能过河                     | on_own_side()检查                 | OK
+象眼检测      | 塞象眼                       | 检查中间点mid是否有子             | OK
+红方限制      | 不能到row>=5                | on_own_side: row<=4               | OK
+黑方限制      | 不能到row<=4                | on_own_side: row>=5               | OK
+
+【马】
+移动方式      | 日字                         | horse_moves()                     | OK
+移动路径      | 先直走1格再斜走1格          | dr,dc检查+延伸                    | OK
+蹩马腿        | 直走方向有子则不能跳        | 检查blocking位置                  | OK
+验证结果      | 有子时0步，无子时正常        | if board.get(blocking): continue  | OK
+
+【车】
+移动方式      | 横竖直线                     | chariot_moves()                   | OK
+移动距离      | 无限制                       | while循环直到遇子                 | OK
+遇子处理      | 遇子停止                     | if piece: break                   | OK
+吃子规则      | 对方子可吃，己方子不能       | _not_own_piece()检查              | OK
+
+【炮】
+移动方式      | 横竖直线                     | cannon_moves()阶段1               | OK
+移动距离      | 无限制                       | 同车                              | OK
+吃子方式      | 隔一个子(炮架)              | 阶段2: 找炮架后第一个子            | OK
+炮架规则      | 任何棋子均可                 | 不分己方对方                      | OK
+吃子限制      | 隔子后第一个是对方才吃       | if piece.player != player         | OK
+
+【兵/卒】
+未过河        | 只能前进                     | pawn_moves()未过河                | OK
+过河后        | 前进或左右                   | crossed_river()后增加左右         | OK
+移动方向      | 不能后退                     | forward固定方向                   | OK
+红方前进      | row增加                      | forward=1 for red                 | OK
+黑方前进      | row减少                      | forward=-1 for black              | OK
+过河判断      | 红兵row>=5, 黑卒row<=4      | crossed_river()函数               | OK
+
+【将帅照面】
+照面定义      | 同列且中间无子               | generals_facing()检查             | OK
+照面检测      | col相同+遍历中间格子         | all None in between              | OK
+照面禁止      | 走子后不能照面               | _is_move_legal检查                | OK
+违规处理      | 该走法不合法                 | legal=False                       | OK
+
+【送将禁止】
+定义          | 走后己方将不能被吃           | _is_move_legal检查                | OK
+检测方式      | 模拟走子后检查               | make_move+find_general            | OK
+恢复棋盘      | unmake_move                  | board.unmake_move()               | OK
+违规处理      | 该走法不合法                 | legal=False                       | OK
+
+【胜负判定】
+困毙          | 无合法走法判负               | is_over: legal_moves()==0         | OK
+困毙胜者      | 对方获胜                     | winner: next_player.other         | OK
+将死          | 将被吃                       | is_over: general==None            | OK
+将死胜者      | 吃将方获胜                   | winner: 对方player                | OK
+
+================================================================================
+验证结果：所有规则均已正确实现
+================================================================================
+
+测试数据：
+- 开局合法走法数：44步 ✓
+- 将帅照面检测：False ✓
+- 马蹩腿：有子时0步 ✓
+- 象塞眼：中间有子时0步 ✓
+- 炮架吃子：需炮架才能隔子吃 ✓
+- 兵过河：前后左右 ✓
+- 游戏状态：正常结束 ✓
+
+代码覆盖：
+- cchess/cctypes.py: 类型定义 ✓
+- cchess/ccmoves.py: 7个棋子走法函数 ✓
+- cchess/ccboard.py: 棋盘、状态、合法性检查 ✓
+- agents/chess_random_agent.py: 随机AI ✓

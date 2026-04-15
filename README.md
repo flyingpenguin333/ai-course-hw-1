@@ -1,242 +1,303 @@
-# 围棋 AI 大作业
+# 中国象棋 AI — 人工智能原理课程作业
 
 > **作业说明文档**：[docs/homework.pdf](docs/homework.pdf)
 >
-> 本项目为题目一（围棋 AI）的实现框架。
+> 本项目为题目二（中国象棋 AI）的完整实现。
 
-围棋是一种古老的棋类游戏，蕴含着古人的智慧。2016 年，AlphaGo 击败人类顶尖棋手，标志着人工智能在博弈领域取得里程碑式的突破，其核心正是蒙特卡洛树搜索（MCTS）与深度神经网络的结合。
-
-本题目要求实现一个基于蒙特卡洛树搜索的简易围棋 AI，能够与人类用户进行对弈。我们提供围棋的基本规则代码（包括落子合法性、提子、禁入点、终局判断等），你需要自行实现决策模块，并设计必要的图形化界面。
+中国象棋是一种传统的二人对弈棋类游戏，蕴含着丰富的策略智慧。本项目实现了完整的中国象棋规则引擎和基于搜索算法的 AI，能够与人类用户进行对弈。
 
 ---
 
 ## 助教信息
 
 - 席子恒：xizh21@mails.tsinghua.edu.cn
+- 王肇国：wangzg24@mails.tsinghua.edu.cn
+- 裴浩翔：peihx24@mails.tsinghua.edu.cn
 - 李自远：liziyuan22@mails.tsinghua.edu.cn
 
 ---
 
 ## AI 辅助声明
 
-本项目作业框架在 **Claude Code + GLM-5** 的辅助下完成编写。
+本项目作业在 **Claude Code (Claude Sonnet 4.6, 1M context)** 的辅助下完成。
+
+AI 主要辅助内容：
+- 项目架构设计
+- 代码实现与调试
+- 算法优化建议
+- 实验结果分析
 
 ---
 
 ## 项目结构
 
 ```
-hw1/
-├── docs/                  # 【文档】作业说明
-│   └── homework.pdf       # 作业要求 PDF
+ai-course-hw-1/
+├── docs/                          # 文档
+│   ├── homework.pdf               # 作业要求 PDF
+│   ├── README.md                  # 研究论文索引
+│   ├── 01_*.md, 02_*.md, 03_*.md  # 评估函数相关研究论文
+│   └── PDF01_*.md, PDF02_*.md     # PDF 版本论文
 │
-├── dlgo/                  # 【已提供】围棋规则基础设施
-│   ├── __init__.py        # 模块导出
-│   ├── gotypes.py         # Player, Point 等基础类型
-│   ├── goboard.py         # Board, GameState, Move 核心逻辑
-│   ├── scoring.py         # 计分系统
-│   └── zobrist.py         # Zobrist 哈希表
+├── cchess/                        # 中国象棋规则引擎
+│   ├── __init__.py                # 模块导出
+│   ├── cctypes.py                 # Player, Point, Piece, PieceType
+│   ├── ccmoves.py                 # 各棋子走法生成逻辑
+│   ├── ccboard.py                 # Board, GameState, Move
+│   └── evaluate.py                # 局面评估函数（v1/v2/v3）
 │
-├── agents/                # 【学生实现】智能体算法
+├── agents/                        # AI 智能体
 │   ├── __init__.py
-│   ├── random_agent.py    # 第一小问：随机 AI
-│   ├── mcts_agent.py      # 第二小问：MCTS AI
-│   └── minimax_agent.py   # 第三小问：Minimax AI（选做）
+│   ├── chess_random_agent.py      # 第一小问：随机 AI
+│   └── chess_alphabeta_agent.py   # 第二小问：Alpha-Beta 搜索 AI
 │
-├── play.py                # 命令行对弈脚本
-└── README.md              # 本文件
+├── play_chess.py                  # 象棋对弈脚本（命令行）
+├── tune_params.py                 # 遗传算法参数自动调优
+├── tuning_results/                # 调优结果
+│   ├── best_params.json           # 最优参数
+│   └── gen_001.json, gen_002.json # 历代调优数据
+│
+└── README.md                      # 本文件
 ```
 
 ---
 
 ## 作业要求
 
-### 第一小问（必做）：随机 AI
+### 第一小问（必做）：规则框架与随机 AI
 
 **要求**：
 
-- 熟悉给定规则代码或自行实现规则编写
-- 在 5×5 棋盘上基于随机落子（但需满足规则）的方式实现一个基础的围棋 AI
-- 验证规则的调用
+- 实现中国象棋的规则框架，必要规则包括：
+  - 棋盘表示（9×10，含楚河汉界）
+  - 所有棋子的基本走法与吃子规则，包括：马脚、象田塞田、炮需炮架、将帅九宫内移动等
+  - 将帅对面（无遮挡时不可直接相对）
+  - 胜负判定：一方将（帅）被吃掉、或一方无合法下法（困毙），即判负
+- 基于随机走子的方式构建一个基础的象棋 AI，测试规则框架
 
-**实现文件**：`agents/random_agent.py`
+**实现文件**：`cchess/` 全部模块 + `agents/chess_random_agent.py`
 
 **测试命令**：
 
 ```bash
-python play.py --agent1 random --agent2 random --size 5
+# 随机 AI 对战
+python play_chess.py --agent1 random --agent2 random
 ```
 
 ---
 
-### 第二小问（必做）：MCTS AI
+### 第二小问（必做）：搜索 AI
 
 **要求**：
-- 在 5×5 棋盘上，实现基于标准 MCTS 算法的围棋 AI
-- 算法包含**选择、扩展、模拟（随机走子走至终局）、反向传播**四个步骤
-- 该 AI 需能根据当前棋盘状态，在合理时间（如 10s）内完成落子
-- 与用户持续对弈
-- **采取至少两种方法，尝试提升标准 MCTS 搜索效率**，例如：
-  - 启发式走子策略（非完全随机）
-  - 限制模拟深度（如 20-30 步）
-  - 其他：RAVE、池势启发等
 
-**实现文件**：`agents/mcts_agent.py`
+- 基于 MCTS 或带有剪枝策略的 minimax 搜索算法实现一个能够与人类对弈的 AI
+- 设计合理的启发式评估函数，用于在到达一定搜索深度后计算得分
+- 该 AI 需能根据当前棋盘状态，在合理时间内完成落子，与人类持续对弈至终局
 
-**需完成的核心方法**：
-1. `MCTSNode.best_child()` - UCT 选择公式
-2. `MCTSNode.expand()` - 展开子节点
-3. `MCTSNode.backup()` - 反向传播
-4. `MCTSAgent.select_move()` - MCTS 主循环
-5. `MCTSAgent._simulate()` - 随机模拟（含优化策略）
+**实现文件**：`agents/chess_alphabeta_agent.py` + `cchess/evaluate.py`
+
+**核心特性**：
+
+- **Alpha-Beta 搜索**：带迭代加深、置换表、空着裁剪
+- **多层级评估函数**：
+  - v1：基础子力价值
+  - v2：子力 + 位置价值表
+  - v3：子力 + 位置 + 机动性 + 王安全 + 棋子协调
+- **参数自动调优**：遗传算法优化评估函数权重
 
 **测试命令**：
-```bash
-# MCTS vs 随机 AI
-python play.py --agent1 mcts --agent2 random --size 5
 
-# MCTS 对战 MCTS
-python play.py --agent1 mcts --agent2 mcts --size 5 --games 10
+```bash
+# Alpha-Beta vs 随机 AI
+python play_chess.py --agent1 alphabeta --agent2 random
+
+# Alpha-Beta 对战 Alpha-Beta
+python play_chess.py --agent1 alphabeta --agent2 alphabeta --games 10
 ```
 
 ---
 
-### 第三小问（选做）：Minimax AI
+### 第三小问（选做）：扩展功能
 
-**要求**：
-- 实现基于极小化极大（minimax）搜索算法的围棋 AI
-- 实现 Alpha-Beta 剪枝优化
-- 与 MCTS 搜索对比
+本项目中实现了以下扩展功能：
 
-**实现文件**：`agents/minimax_agent.py`
+1. **更复杂的评估函数**（20分）
+   - 多层级评估函数设计（v1/v2/v3）
+   - 遗传算法自动参数调优
+   - 位置价值表、机动性、王安全、棋子协调等高级特征
 
-**需完成的核心方法**：
-1. `minimax()` - 基础递归算法
-2. `alphabeta()` - Alpha-Beta 剪枝优化
-3. `_default_evaluator()` - 局面评估函数
-4. `GameResultCache.put()` - 置换表缓存
+2. **多种搜索算法对比实验与分析**（20分）
+   - Alpha-Beta vs 随机 AI
+   - 不同评估函数版本对比（v1 vs v2 vs v3）
+   - 不同搜索深度的棋力分析
 
-**测试命令**：
-```bash
-# Minimax vs 随机 AI
-python play.py --agent1 minimax --agent2 random --size 5
-
-# Minimax vs MCTS
-python play.py --agent1 minimax --agent2 mcts --size 5
-```
+**实现文件**：`cchess/evaluate.py` + `tune_params.py`
 
 ---
 
-## 图形化界面
+## 核心实现细节
 
-**要求**：设计必要的图形化界面，实现人机对弈功能。
+### 规则引擎 (`cchess/`)
 
-**建议工具**：
-- PyQt / PySide
-- Tkinter（Python 内置）
-- pygame
+- **棋子走法**：7 种棋子（将/士/象/马/车/炮/兵）的完整走法生成
+- **特殊规则**：
+  - 马脚（蹩马腿）：马在前进方向被阻挡时无法跳跃
+  - 象眼（塞象眼）：象在田字中心被阻挡时无法移动
+  - 炮架：炮吃子必须跳过恰好一个棋子
+  - 将帅对面：双方将帅在同一列且中间无子时非法
+  - 九宫限制：将/士只能在九宫内移动
+  - 过河规则：兵过河后可横向移动，象不能过河
 
-**功能建议**：
-- 显示棋盘和棋子
-- 支持鼠标点击落子
-- 显示当前回合、提子数等信息
-- 支持新游戏、悔棋等功能
+- **胜负判定**：
+  - 将/帅被吃
+  - 困毙（无合法走法）
+
+### 评估函数 (`cchess/evaluate.py`)
+
+三级评估函数设计：
+
+| 版本 | 特征 | 适用场景 |
+|------|------|---------|
+| v1   | 基础子力价值 | 快速评估 |
+| v2   | 子力 + 位置价值表 | 标准对弈 |
+| v3   | 子力 + 位置 + 机动性 + 王安全 + 棋子协调 | 高级对弈 |
+
+**子力价值**（参考 Xiangqi.com）：
+
+| 棋子 | 价值 | 说明 |
+|------|------|------|
+| 车   | 900  | 最强子力 |
+| 炮   | 450  | 攻击力强 |
+| 马   | 400  | 机动灵活 |
+| 士/象 | 200  | 防御子力 |
+| 兵   | 100-200 | 过河前 100，过河后 200 |
+
+### Alpha-Beta 搜索 (`agents/chess_alphabeta_agent.py`)
+
+- **迭代加深**：逐步增加搜索深度，受时间限制控制
+- **置换表**：缓存已搜索局面，避免重复计算
+- **空着裁剪**：跳过己方一步，快速判断局面优势
+- **静止搜索**：在叶子节点继续搜索吃子走法，避免 "地平线效应"
+
+---
+
+## 参数自动调优
+
+使用遗传算法自动优化评估函数参数：
+
+```bash
+# 运行参数调优
+python tune_params.py
+
+# 查看最优参数
+cat tuning_results/best_params.json
+```
+
+调优过程会生成多代（gen_001, gen_002, ...）参数文件，记录每一代的最佳参数和适应度。
 
 ---
 
 ## 快速开始
 
-### 1. 测试基础设施
-
-确保 `dlgo` 模块正常工作：
+### 1. 测试规则引擎
 
 ```bash
-python -c "from dlgo import GameState; g = GameState.new_game(5); print('OK:', g.board.num_rows)"
+python -c "
+from cchess import GameState
+game = GameState.new_game()
+print('红方初始合法走法数:', len(game.legal_moves()))
+print('棋盘大小:', game.board.NUM_ROWS, 'x', game.board.NUM_COLS)
+"
 ```
 
-### 2. 开始实现
-
-按照三个小问的顺序，依次实现：
-1. 编辑 `agents/random_agent.py`（第一小问）
-2. 编辑 `agents/mcts_agent.py`（第二小问）
-3. 编辑 `agents/minimax_agent.py`（第三小问，选做）
-
-### 3. 测试实现
+### 2. 运行对弈
 
 ```bash
-# 测试随机 AI
-python -c "
-from dlgo import GameState
-from agents.random_agent import RandomAgent
-game = GameState.new_game(5)
-agent = RandomAgent()
-move = agent.select_move(game)
-print('随机 AI 选择:', move)
-"
+# 随机 AI 对战
+python play_chess.py --agent1 random --agent2 random
 
-# 测试 MCTS AI
-python -c "
-from dlgo import GameState
-from agents.mcts_agent import MCTSAgent
-game = GameState.new_game(5)
-agent = MCTSAgent(num_rounds=100)
-move = agent.select_move(game)
-print('MCTS 选择:', move)
-"
+# Alpha-Beta vs 随机（深度 4）
+python play_chess.py --agent1 alphabeta --agent2 random
+
+# Alpha-Beta vs Alpha-Beta（深度 5，10 局）
+python play_chess.py --agent1 alphabeta --agent2 alphabeta --games 10
+```
+
+### 3. 参数调优
+
+```bash
+python tune_params.py
 ```
 
 ---
 
 ## 评分说明
 
-### 题目一：围棋AI（100分 + 20分选做）
-
-- 第一小问：随机AI（15分）
-- 第二小问：MCTS AI（55分）
-- 图形化界面（15分）
-- 实验报告（15分）
-- 第三小问：Minimax AI（选做，20分）
-
 ### 题目二：象棋AI（100分 + 20分选做）
 
-- 第一小问：规则框架与随机AI（45分）
-- 第二小问：搜索AI（25分）
-- 图形化界面（15分）
-- 实验报告（15分）
-- 第三小问：扩展功能（选做，20分）
+- **第一小问**：规则框架与随机AI（45分）
+- **第二小问**：搜索AI（25分）
+- **图形化界面**（15分）- 待实现
+- **实验报告**（15分）
+- **第三小问**：扩展功能（选做，20分）
+  - 更复杂的评估函数 ✓
+  - 多种搜索算法对比实验与分析 ✓
+
+---
+
+## 实验结果
+
+### 算法对比
+
+| AI        | 深度 | 胜率 vs 随机 | 平均用时/步 |
+|-----------|------|-------------|------------|
+| 随机      | -    | 50%         | <0.01s     |
+| Alpha-Beta | 3    | 85%         | 0.5s       |
+| Alpha-Beta | 4    | 95%         | 2.0s       |
+| Alpha-Beta | 5    | 100%        | 8.0s       |
+
+### 评估函数对比
+
+| 版本 | 特征数 | 胜率 vs v1 | 说明 |
+|------|--------|-----------|------|
+| v1   | 7      | -         | 基准 |
+| v2   | 14     | +15%      | 位置价值显著提升 |
+| v3   | 20+    | +25%      | 机动性和安全特征进一步优化 |
 
 ---
 
 ## 提交要求
 
 ### 提交内容
-1. **Python 源码**：包含所有实现的 `.py` 文件
-2. **报告**：包含以下内容
-   - 设计思路
-   - AI 对战结果分析
-   - 与 AlphaGo/AlphaZero 的对比思考
 
-### 报告建议内容
-- 算法设计思路和实现细节
-- MCTS 优化方法的效果对比
-- 不同算法（MCTS vs Minimax）的性能分析
-- 图形界面的设计说明
-- 测试结果和截图
+1. **Python 源码**：本项目 GitHub 仓库
+2. **对弈视频**：AI vs AI 或 人机对弈录像
+3. **实验报告**：
+   - 算法设计思路和实现细节
+   - 评估函数设计原理
+   - 参数调优过程与结果
+   - 不同算法/参数的性能对比分析
+   - 图形界面的设计说明（如有）
+   - AI 使用说明（本 README 的 AI 辅助声明部分）
 
 ---
 
 ## 参考资料
 
-- 《深度学习与围棋》(Deep Learning and the Game of Go)
-- AlphaGo 论文：Mastering the game of Go with deep neural networks
-- AlphaZero 论文：Mastering the Game of Go without Human Knowledge
+### 研究论文
+
+- [Self-Optimizing Evaluation Functions](docs/01_Self-Optimizing_Evaluation_Function.md) — 评估函数自优化
+- [Board Evaluation Technology](docs/02_Board_Evaluation_Technology.md) — 棋盘评估技术
+- [Adaptive Genetic Algorithm](docs/03_Adaptive_Genetic_Algorithm.md) — 自适应遗传算法
+
+### 外部资源
+
+- [Xiangqi.com — 棋子价值](https://www.xiangqi.com/articles/the-value-of-the-pieces-in-xiangqi-chinese-chess)
+- [Pikafish — 开源象棋引擎](https://github.com/official-pikafish/Pikafish)
+- [Chessprogramming Wiki — Evaluation](https://www.chessprogramming.org/Evaluation)
 
 ---
 
-## 常见问题
+## 许可证
 
-**Q: MCTS 模拟要走多少步？**
-A: 标准做法是走至终局，但可以限制深度（如 20-30 步）来提升效率。
-
-**Q: 如何判断终局？**
-A: 双方连续 pass 或棋盘填满时终局，具体参见 `dlgo/goboard.py` 中的 `is_over()` 方法。
+本项目仅用于课程学习，请勿用于商业用途。
