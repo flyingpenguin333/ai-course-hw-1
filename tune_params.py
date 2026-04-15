@@ -22,8 +22,9 @@ from cchess import GameState, Player
 from cchess.evaluate import EvalParams, DEFAULT_PARAMS, evaluate
 from agents.chess_alphabeta_agent import ChessAlphaBetaAgent
 
-# ── 可调参数范围 ──────────────────────────────────────
+# ── 可调参数范围（EVAL7：25个权重）───────────────────────
 PARAM_RANGES = {
+    # MATL: 子力价值 (7个)
     'w_chariot':      (600, 1200),
     'w_cannon':       (300, 600),
     'w_horse':        (300, 600),
@@ -31,7 +32,28 @@ PARAM_RANGES = {
     'w_elephant':     (100, 350),
     'w_pawn':         (50, 200),
     'w_pawn_crossed': (50, 200),
-    'w_mobility':     (0.0, 5.0),
+    # MOB: 机动性 (7个)
+    'w_mob_chariot':  (0.0, 5.0),
+    'w_mob_cannon':   (0.0, 5.0),
+    'w_mob_horse':    (0.0, 5.0),
+    'w_mob_advisor':  (0.0, 2.0),
+    'w_mob_elephant': (0.0, 2.0),
+    'w_mob_pawn':     (0.0, 2.0),
+    'w_mob_general':  (0.0, 1.0),
+    # AKA: 攻击将帅相邻格 (5个)
+    'w_aka_chariot':  (0.0, 20.0),
+    'w_aka_knight':   (0.0, 20.0),
+    'w_aka_cannon':   (0.0, 20.0),
+    'w_aka_advisor':  (0.0, 10.0),
+    'w_aka_elephant': (0.0, 10.0),
+    # SPC: 安全潜在将军 (5个)
+    'w_spc_chariot':  (0.0, 30.0),
+    'w_spc_knight':   (0.0, 30.0),
+    'w_spc_cannon':   (0.0, 30.0),
+    'w_spc_advisor':  (0.0, 15.0),
+    'w_spc_elephant': (0.0, 15.0),
+    # COP: 追逐 (1个)
+    'w_chase':        (0.0, 10.0),
 }
 
 # ── AGA 自适应参数（PDF03 公式）──────────────────────

@@ -1,15 +1,21 @@
 """
-中国象棋评估函数模块。
+中国象棋评估函数模块 (EVAL7 风格，参考 PDF04)。
 
 提供参数化的评估函数接口：evaluate(board, player, params) -> float
 正值表示对 player 有利。
 
-所有权重抽取为 EvalParams dataclass，便于自动调参（遗传算法/PSO）。
+特征体系 (EVAL7 = MATL + LOC + MOB + AKA + SPC + COP):
+  MATL: 子力价值 (7个权重)
+  LOC:  位置价值表 (194特征，硬编码)
+  MOB:  每种棋子的安全机动性 (7个权重)
+  AKA:  攻击将帅相邻格子 (5个权重，按攻击子类型)
+  SPC:  安全潜在将军 (5个权重，按将军子类型)
+  COP:  追逐对方棋子 (1个权重)
 
 三个版本递进：
-  evaluate    — v1: 子力 + 位置价值表
-  evaluate_v2 — v2: v1 + 机动性
-  evaluate_v3 — v3: v2 + 王安全
+  evaluate    — v1: MATL + LOC
+  evaluate_v2 — v2: v1 + MOB (按棋子类型分别计权)
+  evaluate_v3 — v3: v2 + AKA + SPC + COP
 """
 
 import json
@@ -25,8 +31,8 @@ MATE_SCORE = 100_000
 
 @dataclass
 class EvalParams:
-    """评估函数可调参数。所有子力权重和特征权重集中于此。"""
-    # 子力价值
+    """评估函数可调参数 - PDF04 EVAL7 风格，共25个权重。"""
+    # MATL: 子力价值 (7个)
     w_chariot: int = 900
     w_cannon: int = 450
     w_horse: int = 400
@@ -34,9 +40,32 @@ class EvalParams:
     w_elephant: int = 200
     w_pawn: int = 100
     w_pawn_crossed: int = 100   # 过河兵额外加成
-    # 高级特征权重
-    w_mobility: float = 0.0     # 机动性
-    w_king_safety: float = 0.0  # 王安全
+
+    # MOB: 机动性 (7个权重，每种棋子类型一个)
+    w_mob_chariot: float = 0.0
+    w_mob_cannon: float = 0.0
+    w_mob_horse: float = 0.0
+    w_mob_advisor: float = 0.0
+    w_mob_elephant: float = 0.0
+    w_mob_pawn: float = 0.0
+    w_mob_general: float = 0.0   # 将/帅的机动性通常不重要
+
+    # AKA: 攻击将帅相邻格子 (5个权重)
+    w_aka_chariot: float = 0.0
+    w_aka_knight: float = 0.0
+    w_aka_cannon: float = 0.0
+    w_aka_advisor: float = 0.0
+    w_aka_elephant: float = 0.0
+
+    # SPC: 安全潜在将军 (5个权重)
+    w_spc_chariot: float = 0.0
+    w_spc_knight: float = 0.0
+    w_spc_cannon: float = 0.0
+    w_spc_advisor: float = 0.0
+    w_spc_elephant: float = 0.0
+
+    # COP: 追逐对方棋子 (1个权重)
+    w_chase: float = 0.0
 
     def to_dict(self):
         return asdict(self)
@@ -57,19 +86,6 @@ class EvalParams:
 
 
 DEFAULT_PARAMS = EvalParams()
-
-
-def _piece_value(piece_type, params):
-    """从 params 获取棋子子力价值。"""
-    return {
-        PieceType.GENERAL:  MATE_SCORE,
-        PieceType.CHARIOT:  params.w_chariot,
-        PieceType.CANNON:   params.w_cannon,
-        PieceType.HORSE:    params.w_horse,
-        PieceType.ADVISOR:  params.w_advisor,
-        PieceType.ELEPHANT: params.w_elephant,
-        PieceType.PAWN:     params.w_pawn,
-    }[piece_type]
 
 
 # ── 位置价值表（红方视角，row 0=底线）──────────────────
@@ -108,7 +124,7 @@ _CANNON_TABLE = [
     [ 0,  0,  0,  2,  8,  2,  0,  0,  0],
     [ 0,  0,  0,  2,  8,  2,  0,  0,  0],
     [-2,  0,  4,  2,  6,  2,  4,  0, -2],
-    [ 0,  0,  0,  2,  6,  2,  0,  0,  0],
+    [ 0,  0,  0,  2, 6, 2,  0,  0,  0],
     [ 4,  0,  8,  6, 10,  6,  8,  0,  4],
     [ 0,  2,  4,  6,  6,  6,  4,  2,  0],
     [ 0,  0,  2,  6,  6,  6,  2,  0,  0],
@@ -132,38 +148,36 @@ _GENERAL_TABLE = [
     [ 0,  0,  0, -9,  0, -9,  0,  0,  0],
     [ 0,  0,  0,  0,  9,  0,  0,  0,  0],
     [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
+    [ 0,  0,  0,  0,  0,  0,  0, 0,  0],
+    [ 0,  0,   0, 0,  0,  0,  0,  0,  0],
+    [ 0, 0,  0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0,  0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]
 
 _ADVISOR_TABLE = [
     [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
     [ 0,  0,  0, 20,  0, 20,  0,  0,  0],
     [ 0,  0,  0,  0, 23,  0,  0,  0,  0],
-    [ 0,  0,  0, 20,  0, 20,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
+    [ 0,  0,  0, 20,  0, 20,  0, 0,  0],
+    [ 0,  0,  0,  0,  0, 0, 0, 0, 0, 0],
+    [ 0,  0,  0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0,  0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0,  0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]
 
 _ELEPHANT_TABLE = [
     [ 0,  0, 20,  0,  0,  0, 20,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [18,  0,  0,  0, 23,  0,  0,  0, 18],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0, 20,  0,  0,  0, 20,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
-    [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
+    [ 0,  0,  0,   0, 0,  0, 0,  0, 0],
+    [18,  0, 0,  0, 23,  0, 0, 0, 18],
+    [ 0,  0, 0, 0, 0,  0, 0, 0,  0],
+    [ 0, 0, 20, 0, 0, 0, 20, 0, 0, 0],
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0,  0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]
 
 _POS_TABLES = {
@@ -178,6 +192,19 @@ _POS_TABLES = {
 
 
 # ── 评估函数 ──────────────────────────────────────────
+
+
+def _piece_value(piece_type, params):
+    return {
+        PieceType.GENERAL:  MATE_SCORE,
+        PieceType.CHARIOT:  params.w_chariot,
+        PieceType.CANNON:   params.w_cannon,
+        PieceType.HORSE:    params.w_horse,
+        PieceType.ADVISOR:  params.w_advisor,
+        PieceType.ELEPHANT: params.w_elephant,
+        PieceType.PAWN:     params.w_pawn,
+    }[piece_type]
+
 
 def _piece_score(piece, point, params):
     """单个棋子的子力 + 位置价值。"""
@@ -196,7 +223,7 @@ def _piece_score(piece, point, params):
 
 
 def evaluate(board, player, params=None):
-    """v1: 子力 + 位置价值表。"""
+    """v1: MATL + LOC (子力 + 位置价值表)。"""
     if params is None:
         params = DEFAULT_PARAMS
     score = 0
@@ -209,69 +236,150 @@ def evaluate(board, player, params=None):
     return score
 
 
-# ── PLACEHOLDER_V2V3 ──
+# ── 特征计算函数 (EVAL7) ────────────────────────────────
 
 
-def _mobility_score(board, player):
-    """机动性：己方合法走法数 - 对方合法走法数。"""
-    own = sum(len(get_piece_moves(pc, pt, board))
-              for pt, pc in board._grid.items() if pc.player == player)
-    opp = sum(len(get_piece_moves(pc, pt, board))
-              for pt, pc in board._grid.items() if pc.player != player)
-    return own - opp
-
-
-def _king_safety_score(board, player):
-    """
-    王安全评估（参考PDF04的AKA特征）：
-    - 士象完整度：每个士+15，每个象+15
-    - 将周围被对方攻击的格数：每格-20
-    """
-    score = 0
+def _is_safe_square(square, player, board):
+    """检查格子是否安全（不被对方攻击）。"""
     opponent = player.other
-    # 士象完整度
     for pt, pc in board._grid.items():
-        if pc.player == player:
-            if pc.piece_type == PieceType.ADVISOR:
-                score += 15
-            elif pc.piece_type == PieceType.ELEPHANT:
-                score += 15
-    # 将周围被攻击格数
-    gen_pos = board.find_general(player)
-    if gen_pos is None:
-        return -500
+        if pc.player == opponent and square in get_piece_moves(pc, pt, board):
+            return False
+    return True
+
+
+def _get_adjacent_squares(gen_pos, player):
+    """获取将帅九宫内相邻格。"""
     adj_squares = []
     for dr, dc in [(-1, 0), (1, 0), (0, -1), (0, 1)]:
         sq = Point(gen_pos.row + dr, gen_pos.col + dc)
         if in_palace(sq, player):
             adj_squares.append(sq)
-    # 检查对方棋子能否攻击这些格
-    opp_pieces = [(pt, pc) for pt, pc in board._grid.items() if pc.player == opponent]
-    attacked = 0
-    for sq in adj_squares:
-        for pt, pc in opp_pieces:
-            if sq in get_piece_moves(pc, pt, board):
-                attacked += 1
-                break
-    score -= attacked * 20
+    return adj_squares
+
+
+def _mobility_score(board, player, params):
+    """MOB: 每种棋子的安全机动性，使用对应权重。"""
+    mobility = {pt: 0 for pt in PieceType}
+    for pt, pc in board._grid.items():
+        if pc.player != player:
+            continue
+        moves = get_piece_moves(pc, pt, board)
+        safe_moves = sum(1 for dest in moves if _is_safe_square(dest, player, board))
+        mobility[pc.piece_type] += safe_moves
+    score = (mobility[PieceType.CHARIOT] * params.w_mob_chariot +
+             mobility[PieceType.CANNON] * params.w_mob_cannon +
+             mobility[PieceType.HORSE] * params.w_mob_horse +
+             mobility[PieceType.ADVISOR] * params.w_mob_advisor +
+             mobility[PieceType.ELEPHANT] * params.w_mob_elephant +
+             mobility[PieceType.PAWN] * params.w_mob_pawn +
+             mobility[PieceType.GENERAL] * params.w_mob_general)
     return score
 
 
+def _aka_score(board, player, params):
+    """AKA: 对方攻击己方将帅相邻格数（按攻击子类型计权）。"""
+    gen_pos = board.find_general(player)
+    if gen_pos is None:
+        return -500
+    opponent = player.other
+    adj_squares = _get_adjacent_squares(gen_pos, player)
+    attacks_by_type = {
+        PieceType.CHARIOT: 0, PieceType.HORSE: 0, PieceType.CANNON: 0,
+        PieceType.ADVISOR: 0, PieceType.ELEPHANT: 0,
+    }
+    for sq in adj_squares:
+        for pt, pc in board._grid.items():
+            if pc.player != opponent or pc.piece_type not in attacks_by_type:
+                continue
+            if sq in get_piece_moves(pc, pt, board):
+                attacks_by_type[pc.piece_type] += 1
+                break
+    score = -(attacks_by_type[PieceType.CHARIOT] * params.w_aka_chariot +
+             attacks_by_type[PieceType.HORSE] * params.w_aka_knight +
+             attacks_by_type[PieceType.CANNON] * params.w_aka_cannon +
+             attacks_by_type[PieceType.ADVISOR] * params.w_aka_advisor +
+             attacks_by_type[PieceType.ELEPHANT] * params.w_aka_elephant)
+    return score
+
+
+def _spc_score(board, player, params):
+    """SPC: 己方安全潜在将军数（按将军子类型计权）。"""
+    opponent = player.other
+    opp_gen_pos = board.find_general(opponent)
+    if opp_gen_pos is None:
+        return 500
+    safe_checks_by_type = {
+        PieceType.CHARIOT: 0, PieceType.HORSE: 0, PieceType.CANNON: 0,
+        PieceType.ADVISOR: 0, PieceType.ELEPHANT: 0,
+    }
+    for pt, pc in board._grid.items():
+        if pc.player != player or pc.piece_type not in safe_checks_by_type:
+            continue
+        for dest in get_piece_moves(pc, pt, board):
+            captured = board.make_move(Move(pt, dest))
+            checking = opp_gen_pos in get_piece_moves(pc, dest, board)
+            safe = True
+            if checking:
+                for opt, opc in board._grid.items():
+                    if opc.player == opponent and dest in get_piece_moves(opc, opt, board):
+                        safe = False
+                        break
+            board.unmake_move(Move(pt, dest), captured)
+            if checking and safe:
+                safe_checks_by_type[pc.piece_type] += 1
+    score = (safe_checks_by_type[PieceType.CHARIOT] * params.w_spc_chariot +
+             safe_checks_by_type[PieceType.HORSE] * params.w_spc_knight +
+             safe_checks_by_type[PieceType.CANNON] * params.w_spc_cannon +
+             safe_checks_by_type[PieceType.ADVISOR] * params.w_spc_advisor +
+             safe_checks_by_type[PieceType.ELEPHANT] * params.w_spc_elephant)
+    return score
+
+
+def _cop_score(board, player, params):
+    """COP: 追逐对方棋子（简化版：统计被攻击的对方棋子数差）。"""
+    opponent = player.other
+    my_chases = 0
+    for pt, pc in board._grid.items():
+        if pc.player != player:
+            continue
+        moves = get_piece_moves(pc, pt, board)
+        for dest in moves:
+            target = board.get(dest)
+            if target and target.player == opponent:
+                my_chases += 1
+                break
+    opp_chases = 0
+    for pt, pc in board._grid.items():
+        if pc.player != opponent:
+            continue
+        moves = get_piece_moves(pc, pt, board)
+        for dest in moves:
+            target = board.get(dest)
+            if target and target.player == player:
+                opp_chases += 1
+                break
+    return (my_chases - opp_chases) * params.w_chase
+
+
+# ── v2/v3 评估函数 ────────────────────────────────────────
+
+
 def evaluate_v2(board, player, params=None):
-    """v2: v1 + 机动性。"""
+    """v2: MATL + LOC + MOB (按棋子类型分别计权)。"""
     if params is None:
         params = DEFAULT_PARAMS
     score = evaluate(board, player, params)
-    if params.w_mobility != 0:
-        score += params.w_mobility * _mobility_score(board, player)
+    score += _mobility_score(board, player, params)
     return score
 
 
 def evaluate_v3(board, player, params=None):
-    """v3: v2 + 王安全。"""
+    """v3: v2 + AKA + SPC + COP。"""
     if params is None:
         params = DEFAULT_PARAMS
     score = evaluate_v2(board, player, params)
-    if params.w_king_safety != 0:
-        score += params.w_king_safety * _king_safety_score(board, player)
+    score += _aka_score(board, player, params)
+    score += _spc_score(board, player, params)
+    score += _cop_score(board, player, params)
     return score
