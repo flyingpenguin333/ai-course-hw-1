@@ -77,6 +77,8 @@ class StatCollector:
         self.total_nodes = 0
         self.total_depth = 0.0
         self.agent_type = self._get_agent_type()
+        self._last_nodes = 0  # 记录上次节点数
+        self._last_sims = 0   # 记录上次模拟次数
 
     def _get_agent_type(self):
         """获取Agent类型"""
@@ -94,11 +96,8 @@ class StatCollector:
         """包装select_move，收集统计信息"""
         start_time = time.time()
 
-        # 对于有统计的agent，保存原始值
-        nodes_before = getattr(self.agent, '_nodes', 0) if self.agent_type in ['minimax', 'alphabeta'] else 0
-        sims_before = getattr(self.agent, '_simulations', 0) if self.agent_type == 'mcts' else 0
-
         # 调用原始agent的select_move
+        # 注意：agent内部会在开始时重置计数器，所以我们在调用后直接读取
         move = self.agent.select_move(game_state)
 
         elapsed = time.time() - start_time
@@ -112,13 +111,14 @@ class StatCollector:
 
         elif self.agent_type in ['minimax', 'alphabeta']:
             # 从agent内部获取本次搜索的节点数
-            nodes_after = getattr(self.agent, '_nodes', 0)
-            self.total_nodes += (nodes_after - nodes_before)
+            # select_move结束后，_nodes就是本次搜索的节点数
+            nodes = getattr(self.agent, '_nodes', 0)
+            self.total_nodes += nodes
 
         elif self.agent_type == 'mcts':
             # MCTS的模拟次数
-            sims_after = getattr(self.agent, '_simulations', 0)
-            self.total_nodes += (sims_after - sims_before)
+            sims = getattr(self.agent, '_simulations', 0)
+            self.total_nodes += sims
 
         return move
 
