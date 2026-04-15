@@ -27,30 +27,37 @@ class MCTSNode:
 
     # 统计信息
     visits: int = 0
-    total_reward: float = 0.0
+    total_reward: float = 0.0  # 从父节点视角累计奖励
 
     # 子节点
     children: Dict[Move, 'MCTSNode'] = field(default_factory=dict)
+    _untried_moves: Optional[List] = field(default=None, repr=False)
+
+    def _init_untried(self):
+        if self._untried_moves is None:
+            self._untried_moves = list(self.state.legal_moves())
 
     @property
     def reward(self) -> float:
-        """平均奖励"""
+        """平均奖励（父节点视角）"""
         if self.visits == 0:
             return 0.0
         return self.total_reward / self.visits
 
     def is_fully_expanded(self) -> bool:
-        """是否所有子节点都已扩展"""
-        legal_moves = self.state.legal_moves()
-        return len(self.children) == len(legal_moves)
+        self._init_untried()
+        return len(self._untried_moves) == 0
 
     def get_unexplored_move(self) -> Optional[Move]:
-        """获取未扩展的走法"""
-        legal_moves = self.state.legal_moves()
-        for move in legal_moves:
-            if move not in self.children:
-                return move
-        return None
+        self._init_untried()
+        if not self._untried_moves:
+            return None
+        # 随机选一个未尝试的走法并移除
+        idx = random.randrange(len(self._untried_moves))
+        move = self._untried_moves[idx]
+        self._untried_moves[idx] = self._untried_moves[-1]
+        self._untried_moves.pop()
+        return move
 
 
 class ChessMCTSAgent:
@@ -211,12 +218,14 @@ class ChessMCTSAgent:
         return total
 
     def _backpropagate(self, node: MCTSNode, reward: float):
-        """反向传播更新路径上所有节点的统计信息"""
+        """
+        反向传播。reward 是从 node.state.next_player 视角的奖励。
+        node.total_reward 存父节点视角的奖励（UCB1 用于父节点选子节点）。
+        """
         while node is not None:
             node.visits += 1
-            # 注意：从对手视角看，奖励需要取反
-            node.total_reward += reward
-            reward = -reward  # 换边
+            reward = -reward             # 转换为父节点视角
+            node.total_reward += reward  # 父节点视角
             node = node.parent
 
     def _ucb1(self, node: MCTSNode) -> float:
