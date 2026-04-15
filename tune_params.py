@@ -20,7 +20,7 @@ from dataclasses import fields
 
 from cchess import GameState, Player
 from cchess.evaluate import EvalParams, DEFAULT_PARAMS, evaluate
-from agents.chess_alphabeta_agent import ChessAlphaBetaAgent
+from wuziqi.agents.chess_alphabeta_agent import ChessAlphaBetaAgent
 
 # ── 可调参数范围（EVAL7：25个权重）───────────────────────
 PARAM_RANGES = {

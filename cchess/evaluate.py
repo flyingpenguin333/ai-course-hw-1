@@ -31,7 +31,7 @@ MATE_SCORE = 100_000
 
 @dataclass
 class EvalParams:
-    """评估函数可调参数 - PDF04 EVAL7 风格，共25个权重。"""
+    """评估函数可调参数, 共25个权重。"""
     # MATL: 子力价值 (7个)
     w_chariot: int = 900
     w_cannon: int = 450
