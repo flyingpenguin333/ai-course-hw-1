@@ -176,7 +176,8 @@ def play_game(collector1, collector2, move_limit=200, verbose=False):
 
 
 def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
-                    output_dir: str, verbose: bool = True):
+                    output_dir: str, verbose: bool = True,
+                    pair_filter: List[int] = None):
     """
     运行循环赛
 
@@ -185,6 +186,7 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
         games_per_pair: 每对局数
         output_dir: 输出目录
         verbose: 是否输出详细信息
+        pair_filter: 只跑指定编号的对（1-based），None表示全跑
     """
     # 创建agents
     agents = {}
@@ -210,6 +212,12 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
 
             if verbose:
                 print(f"\n=== Pair {pair_idx}/{total_pairs}: {name1} vs {name2} ===")
+
+            # 跳过不在过滤列表中的对
+            if pair_filter is not None and pair_idx not in pair_filter:
+                if verbose:
+                    print(f"  (skipped)")
+                continue
 
             for g in range(games_per_pair):
                 # 交换先后手
@@ -369,15 +377,25 @@ def main():
     parser.add_argument("--output", type=str, default="experiments/results",
                        help="输出目录（默认experiments/results）")
     parser.add_argument("--quick", action="store_true",
-                       help="快速模式：每对2局")
+                       help="快速模式：每对1局，1s时间限制")
     parser.add_argument("--quiet", action="store_true",
                        help="静默模式：减少输出")
+    parser.add_argument("--pairs", type=str, default=None,
+                       help="只跑指定对，逗号分隔（如 --pairs 1,2,3）。"
+                            "共6对：1=Random-Minimax, 2=Random-AlphaBeta, "
+                            "3=Random-MCTS, 4=Minimax-AlphaBeta, "
+                            "5=Minimax-MCTS, 6=AlphaBeta-MCTS")
 
     args = parser.parse_args()
 
     # 快速模式
     if args.quick:
         args.games = 1
+
+    # 解析 --pairs
+    pair_filter = None
+    if args.pairs:
+        pair_filter = [int(x) for x in args.pairs.split(',')]
 
     # 固定随机种子（可重复性）
     random.seed(42)
@@ -396,12 +414,14 @@ def main():
     print(f"\n=== 搜索算法对比实验 ===")
     print(f"Agents: {', '.join(agents_config.keys())}")
     print(f"Games per pair: {args.games}")
-    print(f"Total games: {len(agents_config) * (len(agents_config) - 1) // 2 * args.games * 2}")
+    if pair_filter:
+        print(f"Running pairs: {pair_filter}")
     print(f"Output: {args.output}/")
 
     # 运行循环赛
     agent_stats, all_stats = run_round_robin(
-        agents_config, args.games, args.output, verbose=not args.quiet
+        agents_config, args.games, args.output,
+        verbose=not args.quiet, pair_filter=pair_filter
     )
 
     # 打印结果
