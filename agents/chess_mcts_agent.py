@@ -3,7 +3,7 @@ MCTS (蒙特卡洛树搜索) 象棋AI。
 
 算法：四个步骤 - 选择、扩展、模拟、反向传播
 优化：UCB1公式、时间控制
-评估：末端局面用简单评估函数或随机模拟
+评估：快速蒙特卡洛模拟（材料评估）
 """
 
 import random
@@ -12,7 +12,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional, Dict, List
 
-from cchess import GameState, Move, Player
+from cchess import GameState, Move, Player, PieceType
 from cchess.evaluate import evaluate, EvalParams, DEFAULT_PARAMS
 
 __all__ = ["ChessMCTSAgent"]
@@ -133,7 +133,9 @@ class ChessMCTSAgent:
 
     def _simulate(self, state: GameState) -> float:
         """
-        模拟对局至终局
+        混合蒙特卡洛模拟：随机走子N步后使用evaluate()评估
+
+        这样MCTS和AlphaBeta使用相同的评估函数，控制变量更一致
 
         返回: 从当前玩家视角的奖励 (胜=1, 负=-1, 平=0)
         """
@@ -149,16 +151,20 @@ class ChessMCTSAgent:
             else:
                 return -1.0
 
-        # 快速模拟：随机走子直到终局或达到深度限制
+        # 混合模拟：随机走子几步，然后用evaluate()评估
         sim_state = state
-        max_depth = 50  # 防止无限循环
+        max_depth = 5  # 只模拟几步，然后用评估函数
 
         for _ in range(max_depth):
             if sim_state.is_over():
                 break
 
-            # 随机选择一个合法走法
-            moves = sim_state.legal_moves()
+            # 使用简化的走法生成
+            try:
+                moves = self._get_fast_moves(sim_state)
+            except:
+                break
+
             if not moves:
                 break
 
@@ -173,22 +179,36 @@ class ChessMCTSAgent:
 
             sim_state = sim_state.apply_move(move)
 
-        # 评估最终局面
-        if sim_state.is_over():
-            winner = sim_state.winner()
-            original_player = state.next_player
+        # 使用与AlphaBeta相同的评估函数
+        score = self.eval_fn(sim_state.board, state.next_player, self.eval_params)
 
-            if winner is None:
-                return 0.0
-            elif winner == original_player:
-                return 1.0
-            else:
-                return -1.0
-        else:
-            # 未到终局，用评估函数评估
-            score = self.eval_fn(sim_state.board, state.next_player, self.eval_params)
-            # 将评估值归一化到 [-1, 1]
-            return math.tanh(score / 1000.0)
+        # 将评估值归一化到 [-1, 1]
+        return math.tanh(score / 1000.0)
+
+    def _get_fast_moves(self, state):
+        """快速生成走法（不检查将军等复杂规则）"""
+        from cchess.ccmoves import get_piece_moves
+        moves = []
+        for point, piece in state.board.pieces_for_player(state.next_player):
+            for dest in get_piece_moves(piece, point, state.board):
+                moves.append(Move(point, dest))
+        return moves
+
+    def _count_material(self, state, player):
+        """简单计算材料分"""
+        piece_values = {
+            PieceType.GENERAL: 10000,
+            PieceType.CHARIOT: 900,
+            PieceType.CANNON: 450,
+            PieceType.HORSE: 400,
+            PieceType.ADVISOR: 200,
+            PieceType.ELEPHANT: 200,
+            PieceType.PAWN: 100,
+        }
+        total = 0
+        for _, piece in state.board.pieces_for_player(player):
+            total += piece_values.get(piece.piece_type, 0)
+        return total
 
     def _backpropagate(self, node: MCTSNode, reward: float):
         """反向传播更新路径上所有节点的统计信息"""

@@ -76,7 +76,8 @@ class StatCollector:
         self.total_time = 0.0
         self.total_nodes = 0
         self.total_depth = 0.0
-        self.agent_type = self._get_agent_type()
+        self.agent_type = self._get_agent_type()  # 保留算法类型，用于统计收集
+        self.color = None  # 存储颜色（'red'/'black'），不影响agent_type
         self._last_nodes = 0  # 记录上次节点数
         self._last_sims = 0   # 记录上次模拟次数
 
@@ -159,9 +160,9 @@ def play_game(collector1, collector2, move_limit=200, verbose=False):
     # 确定胜者
     winner = game.winner()
     if winner == Player.red:
-        winner_str = 'agent1' if collector1.agent_type != 'black' else 'agent2'
+        winner_str = 'agent1' if collector1.color == 'red' else 'agent2'
     elif winner == Player.black:
-        winner_str = 'agent2' if collector1.agent_type != 'black' else 'agent1'
+        winner_str = 'agent2' if collector1.color == 'red' else 'agent1'
     else:
         winner_str = 'draw'
 
@@ -222,15 +223,15 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
                     agent1, agent2 = agents[name1], agents[name2]
                     collector1 = StatCollector(agent1, name1)
                     collector2 = StatCollector(agent2, name2)
-                    # 设置颜色
-                    collector1.agent_type = 'red'
-                    collector2.agent_type = 'black'
+                    # 设置颜色（使用color字段，不覆盖agent_type）
+                    collector1.color = 'red'
+                    collector2.color = 'black'
                 else:
                     agent1, agent2 = agents[name2], agents[name1]
                     collector1 = StatCollector(agent1, name2)
                     collector2 = StatCollector(agent2, name1)
-                    collector1.agent_type = 'red'
-                    collector2.agent_type = 'black'
+                    collector1.color = 'red'
+                    collector2.color = 'black'
 
                 # 对弈
                 game_stats = play_game(collector1, collector2, verbose=False)
@@ -369,17 +370,20 @@ def main():
 
     # 快速模式
     if args.quick:
-        args.games = 2
+        args.games = 1
 
     # 固定随机种子（可重复性）
     random.seed(42)
 
     # Agent配置
+    # 所有Agent使用相同的评估函数evaluate()，控制变量一致
+    # quick模式用1s时间限制加速测试，正式实验用5s
+    time_limit = 1.0 if args.quick else 5.0
     agents_config = {
         'Random': (ChessRandomAgent, {}),
-        'Minimax': (ChessMinimaxAgent, {'max_depth': 2, 'verbose': False}),
-        'AlphaBeta': (ChessAlphaBetaAgent, {'max_depth': 4, 'verbose': False}),
-        'MCTS': (ChessMCTSAgent, {'verbose': False}),
+        'Minimax': (ChessMinimaxAgent, {'time_limit': time_limit, 'max_depth': 3, 'verbose': False}),
+        'AlphaBeta': (ChessAlphaBetaAgent, {'time_limit': time_limit, 'max_depth': 6, 'verbose': False}),
+        'MCTS': (ChessMCTSAgent, {'time_limit': time_limit, 'verbose': False}),
     }
 
     print(f"\n=== 搜索算法对比实验 ===")
