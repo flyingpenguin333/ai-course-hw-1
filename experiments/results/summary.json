@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Random",
+    "wins": 2,
+    "losses": 3,
+    "draws": 1,
+    "games": 6,
+    "win_rate": 0.3333333333333333,
+    "avg_score": 0.4166666666666667,
+    "total_time": 0.7202725410461426,
+    "total_nodes": 0,
+    "total_moves": 482,
+    "avg_time_per_move": 0.001494341371465026,
+    "avg_nodes_per_move": 0.0,
+    "avg_depth": 0
+  },
+  {
+    "name": "Minimax",
+    "wins": 2,
+    "losses": 3,
+    "draws": 1,
+    "games": 6,
+    "win_rate": 0.3333333333333333,
+    "avg_score": 0.4166666666666667,
+    "total_time": 36.66515612602234,
+    "total_nodes": 0,
+    "total_moves": 470,
+    "avg_time_per_move": 0.0780109704808986,
+    "avg_nodes_per_move": 0.0,
+    "avg_depth": 0
+  },
+  {
+    "name": "AlphaBeta",
+    "wins": 3,
+    "losses": 2,
+    "draws": 1,
+    "games": 6,
+    "win_rate": 0.5,
+    "avg_score": 0.5833333333333334,
+    "total_time": 521.3014438152313,
+    "total_nodes": 0,
+    "total_moves": 374,
+    "avg_time_per_move": 1.3938541278482122,
+    "avg_nodes_per_move": 0.0,
+    "avg_depth": 0
+  },
+  {
+    "name": "MCTS",
+    "wins": 3,
+    "losses": 2,
+    "draws": 1,
+    "games": 6,
+    "win_rate": 0.5,
+    "avg_score": 0.5833333333333334,
+    "total_time": 1211.7551534175873,
+    "total_nodes": 0,
+    "total_moves": 478,
+    "avg_time_per_move": 2.535052622212526,
+    "avg_nodes_per_move": 0.0,
+    "avg_depth": 0
+  }
+]

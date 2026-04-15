@@ -94,6 +94,10 @@ class StatCollector:
         """包装select_move，收集统计信息"""
         start_time = time.time()
 
+        # 对于有统计的agent，保存原始值
+        nodes_before = getattr(self.agent, '_nodes', 0) if self.agent_type in ['minimax', 'alphabeta'] else 0
+        sims_before = getattr(self.agent, '_simulations', 0) if self.agent_type == 'mcts' else 0
+
         # 调用原始agent的select_move
         move = self.agent.select_move(game_state)
 
@@ -105,17 +109,16 @@ class StatCollector:
 
         if self.agent_type == 'random':
             self.total_nodes += 1  # random只评估1个局面
-            self.total_depth += 0
 
         elif self.agent_type in ['minimax', 'alphabeta']:
-            # 从agent内部获取节点数和深度
-            self.total_nodes += getattr(self.agent, '_nodes', 0)
-            # 深度信息从verbose输出中解析，这里简化处理
-            # 实际可以修改agent接口直接返回统计信息
+            # 从agent内部获取本次搜索的节点数
+            nodes_after = getattr(self.agent, '_nodes', 0)
+            self.total_nodes += (nodes_after - nodes_before)
 
         elif self.agent_type == 'mcts':
             # MCTS的模拟次数
-            self.total_nodes += getattr(self.agent, '_simulations', 0)
+            sims_after = getattr(self.agent, '_simulations', 0)
+            self.total_nodes += (sims_after - sims_before)
 
         return move
 
@@ -125,8 +128,12 @@ class StatCollector:
             return None
         if self.move_count == 0:
             return 0.0
-        # 简化处理，实际可以从agent获取
-        return 3.0 if self.agent_type == 'minimax' else 4.0
+        # 简化处理，返回配置的最大深度
+        if self.agent_type == 'minimax':
+            return float(getattr(self.agent, 'max_depth', 2))
+        elif self.agent_type == 'alphabeta':
+            return float(getattr(self.agent, 'max_depth', 4))
+        return 0.0
 
 
 def play_game(collector1, collector2, move_limit=200, verbose=False):

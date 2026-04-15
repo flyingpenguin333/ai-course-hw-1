@@ -195,7 +195,9 @@ def export_summary_csv(agent_stats: List[Dict], output_dir: str):
         writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         for stats in agent_stats:
-            writer.writerow(stats)
+            # 只写入需要的字段
+            row = {k: stats[k] for k in fieldnames}
+            writer.writerow(row)
     print(f"\n汇总表已保存至: {path}")
 
 
