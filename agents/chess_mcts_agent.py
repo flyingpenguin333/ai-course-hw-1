@@ -140,56 +140,60 @@ class ChessMCTSAgent:
 
     def _simulate(self, state: GameState) -> float:
         """
-        混合蒙特卡洛模拟：随机走子N步后使用evaluate()评估
-
-        这样MCTS和AlphaBeta使用相同的评估函数，控制变量更一致
-
-        返回: 从当前玩家视角的奖励 (胜=1, 负=-1, 平=0)
+        混合模拟：在 board 上直接 make/unmake（零拷贝），随机走 N 步后用 evaluate() 评估。
+        返回: 从 state.next_player 视角的奖励。
         """
-        # 如果游戏已结束，直接返回结果
-        if state.is_over():
-            winner = state.winner()
-            current_player = state.next_player
+        from cchess.ccmoves import get_piece_moves
+        from cchess import Player
 
-            if winner is None:  # 平局
-                return 0.0
-            elif winner == current_player:
-                return 1.0
-            else:
-                return -1.0
+        board = state.board
+        original_player = state.next_player
+        current_player = original_player
 
-        # 混合模拟：随机走子几步，然后用evaluate()评估
-        sim_state = state
-        max_depth = 5  # 只模拟几步，然后用评估函数
+        # 如果游戏已结束
+        if board.find_general(Player.red) is None:
+            winner = Player.black
+        elif board.find_general(Player.black) is None:
+            winner = Player.red
+        else:
+            winner = None
+
+        if winner is not None:
+            return 1.0 if winner == original_player else -1.0
+
+        # 记录走法历史，用于 unmake
+        history = []
+        max_depth = 5
 
         for _ in range(max_depth):
-            if sim_state.is_over():
-                break
-
-            # 使用简化的走法生成
-            try:
-                moves = self._get_fast_moves(sim_state)
-            except:
-                break
+            # 快速生成走法（不检查将军）
+            moves = []
+            for pt, pc in board.pieces_for_player(current_player):
+                for dest in get_piece_moves(pc, pt, board):
+                    moves.append(Move(pt, dest))
 
             if not moves:
                 break
 
-            # 简单启发式：优先选择吃子走法
-            capture_moves = [m for m in moves
-                           if sim_state.board.get(m.to_point) is not None]
+            # 优先吃子
+            capture_moves = [m for m in moves if board.get(m.to_point) is not None]
+            move = random.choice(capture_moves if capture_moves and random.random() < 0.7 else moves)
 
-            if capture_moves and random.random() < 0.7:
-                move = random.choice(capture_moves)
-            else:
-                move = random.choice(moves)
+            captured = board.make_move(move)
+            history.append((move, captured))
+            current_player = current_player.other
 
-            sim_state = sim_state.apply_move(move)
+            # 检查将被吃（终局）
+            if board.find_general(current_player.other) is None:
+                break
 
-        # 使用与AlphaBeta相同的评估函数
-        score = self.eval_fn(sim_state.board, state.next_player, self.eval_params)
+        # 评估当前局面（从 original_player 视角）
+        score = self.eval_fn(board, original_player, self.eval_params)
 
-        # 将评估值归一化到 [-1, 1]
+        # unmake 所有走法
+        for move, captured in reversed(history):
+            board.unmake_move(move, captured)
+
         return math.tanh(score / 1000.0)
 
     def _get_fast_moves(self, state):
