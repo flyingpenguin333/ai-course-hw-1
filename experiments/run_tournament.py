@@ -233,6 +233,11 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
                     collector1.color = 'red'
                     collector2.color = 'black'
 
+                red_name = collector1.name
+                black_name = collector2.name
+                if verbose:
+                    print(f"  Game {g+1}/{games_per_pair}: {red_name}(红) vs {black_name}(黑) ...", end='', flush=True)
+
                 # 对弈
                 game_stats = play_game(collector1, collector2, verbose=False)
                 all_stats.append(game_stats)
@@ -240,8 +245,16 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
                 # 更新汇总统计
                 _update_summary(agent_summary, name1, name2, game_stats, g % 2 == 0)
 
-                if verbose and (g + 1) % 5 == 0:
-                    print(f"  Completed {g + 1}/{games_per_pair} games")
+                if verbose:
+                    winner = game_stats.winner
+                    if winner == 'agent1':
+                        winner_label = f"{game_stats.agent1_name} 胜"
+                    elif winner == 'agent2':
+                        winner_label = f"{game_stats.agent2_name} 胜"
+                    else:
+                        winner_label = "平局"
+                    print(f" {winner_label} ({game_stats.num_moves}步, "
+                          f"{game_stats.total_time_1 + game_stats.total_time_2:.0f}s)")
 
     # 计算汇总
     agent_stats_list = []
