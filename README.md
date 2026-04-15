@@ -8,15 +8,6 @@
 
 ---
 
-## 助教信息
-
-- 席子恒：xizh21@mails.tsinghua.edu.cn
-- 王肇国：wangzg24@mails.tsinghua.edu.cn
-- 裴浩翔：peihx24@mails.tsinghua.edu.cn
-- 李自远：liziyuan22@mails.tsinghua.edu.cn
-
----
-
 ## AI 辅助声明
 
 本项目作业在 **Claude Code (Claude Sonnet 4.6, 1M context)** 的辅助下完成。
@@ -127,7 +118,7 @@ python play_chess.py --agent1 alphabeta --agent2 alphabeta --games 10
    - 位置价值表、机动性、王安全、棋子协调等高级特征
 
 2. **多种搜索算法对比实验与分析**（20分）
-   - Alpha-Beta vs 随机 AI
+   - Alpha-Beta vs Minimax vs MTCS vs Random AI
    - 不同评估函数版本对比（v1 vs v2 vs v3）
    - 不同搜索深度的棋力分析
 
@@ -161,16 +152,6 @@ python play_chess.py --agent1 alphabeta --agent2 alphabeta --games 10
 | v1   | 基础子力价值 | 快速评估 |
 | v2   | 子力 + 位置价值表 | 标准对弈 |
 | v3   | 子力 + 位置 + 机动性 + 王安全 + 棋子协调 | 高级对弈 |
-
-**子力价值**（参考 Xiangqi.com）：
-
-| 棋子 | 价值 | 说明 |
-|------|------|------|
-| 车   | 900  | 最强子力 |
-| 炮   | 450  | 攻击力强 |
-| 马   | 400  | 机动灵活 |
-| 士/象 | 200  | 防御子力 |
-| 兵   | 100-200 | 过河前 100，过河后 200 |
 
 ### Alpha-Beta 搜索 (`agents/chess_alphabeta_agent.py`)
 
