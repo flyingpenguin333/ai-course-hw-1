@@ -183,8 +183,8 @@ class ChessMCTSAgent:
             history.append((move, captured))
             current_player = current_player.other
 
-            # 检查将被吃（终局）
-            if board.find_general(current_player.other) is None:
+            # 检查将被吃（终局）：刚走子方可能吃掉了 current_player 的将
+            if board.find_general(current_player) is None:
                 break
 
         # 评估当前局面（从 original_player 视角）

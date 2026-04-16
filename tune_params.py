@@ -14,24 +14,38 @@ import copy
 import json
 import os
 import random
+import signal
 import time
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from dataclasses import fields
 
+# ── 优雅退出标志 ──────────────────────────────────────
+_stop_requested = False
+
+def _handle_sigint(*_):
+    global _stop_requested
+    if not _stop_requested:
+        print("\n[INFO] Ctrl+C 收到，当前代完成后退出并保存...")
+        _stop_requested = True
+
+signal.signal(signal.SIGINT, _handle_sigint)
+
 from cchess import GameState, Player
 from cchess.evaluate import EvalParams, DEFAULT_PARAMS, evaluate
-from wuziqi.agents.chess_alphabeta_agent import ChessAlphaBetaAgent
+from agents.chess_alphabeta_agent import ChessAlphaBetaAgent
 
 # ── 可调参数范围（EVAL7：25个权重）───────────────────────
+# 参数范围基于 PDF04 Table II 初始值，允许 ±25% 的浮动
 PARAM_RANGES = {
     # MATL: 子力价值 (7个)
-    'w_chariot':      (600, 1200),
-    'w_cannon':       (300, 600),
-    'w_horse':        (300, 600),
-    'w_advisor':      (100, 350),
-    'w_elephant':     (100, 350),
-    'w_pawn':         (50, 200),
-    'w_pawn_crossed': (50, 200),
+    # PDF04 初始值: Chariot=2000, Cannon=950, Horse=950, Advisor=350, Elephant=350, Pawn=300
+    'w_chariot':      (1500, 2500),
+    'w_cannon':       (700, 1200),
+    'w_horse':        (700, 1200),
+    'w_advisor':      (250, 450),
+    'w_elephant':     (250, 450),
+    'w_pawn':         (200, 400),
+    'w_pawn_crossed': (50, 200),   # 过河兵加成（PDF04未明确）
     # MOB: 机动性 (7个)
     'w_mob_chariot':  (0.0, 5.0),
     'w_mob_cannon':   (0.0, 5.0),
@@ -138,6 +152,25 @@ def play_match(params1_dict, params2_dict, depth, move_limit):
 # ── PLACEHOLDER_MAIN ──
 
 
+def save_checkpoint(path, gen, population, best_ever, best_ever_fitness):
+    data = {
+        "gen": gen,
+        "population": [p.to_dict() for p in population],
+        "best_ever": best_ever.to_dict(),
+        "best_ever_fitness": best_ever_fitness,
+    }
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+
+
+def load_checkpoint(path):
+    with open(path) as f:
+        data = json.load(f)
+    population = [EvalParams.from_dict(d) for d in data["population"]]
+    best_ever = EvalParams.from_dict(data["best_ever"])
+    return data["gen"], population, best_ever, data["best_ever_fitness"]
+
+
 def run_tournament(population, depth, move_limit, games_per_match, workers):
     """循环赛：每对个体对弈，返回每个个体的胜率。"""
     n = len(population)
@@ -198,17 +231,16 @@ def evolve(population, fitness):
 
     # 精英保留：最好的2个直接进入下一代
     ranked = sorted(range(n), key=lambda i: fitness[i], reverse=True)
-    new_pop = [population[ranked[0]], population[ranked[1]]]
+    new_pop = [copy.deepcopy(population[ranked[0]]), copy.deepcopy(population[ranked[1]])]
 
     # 锦标赛选择 + 交叉 + 变异填充剩余
     while len(new_pop) < n:
         # 锦标赛选择两个父代（3选1）
-        parent1 = _tournament_select(population, fitness, k=3)
-        parent2 = _tournament_select(population, fitness, k=3)
+        idx1, parent1 = _tournament_select(population, fitness, k=3)
+        idx2, parent2 = _tournament_select(population, fitness, k=3)
 
         pc, pm = adaptive_pc_pm(
-            max(fitness[population.index(parent1)],
-                fitness[population.index(parent2)]),
+            max(fitness[idx1], fitness[idx2]),
             f_avg, f_max)
 
         if random.random() < pc:
@@ -225,39 +257,54 @@ def evolve(population, fitness):
 
 
 def _tournament_select(population, fitness, k=3):
-    """k-锦标赛选择。"""
+    """k-锦标赛选择，返回 (index, params)。"""
     candidates = random.sample(list(enumerate(fitness)), min(k, len(fitness)))
     best_idx = max(candidates, key=lambda x: x[1])[0]
-    return population[best_idx]
+    return best_idx, population[best_idx]
 
 
 def main():
     parser = argparse.ArgumentParser(description="象棋评估函数自动调参")
     parser.add_argument("--pop", type=int, default=12, help="种群大小")
-    parser.add_argument("--gen", type=int, default=30, help="代数")
+    parser.add_argument("--gen", type=int, default=999, help="最大代数（默认不限）")
     parser.add_argument("--depth", type=int, default=3, help="搜索深度")
-    parser.add_argument("--games", type=int, default=4, help="每对个体对弈局数")
+    parser.add_argument("--games", type=int, default=2, help="每对个体对弈局数")
     parser.add_argument("--move-limit", type=int, default=150, help="每局步数上限")
     parser.add_argument("--workers", type=int, default=4, help="并行进程数")
+    parser.add_argument("--time-limit", type=float, default=0, help="训练时间上限（分钟），0=不限")
+    parser.add_argument("--resume", action="store_true", help="从 checkpoint 恢复训练")
     args = parser.parse_args()
 
     out_dir = "tuning_results"
     os.makedirs(out_dir, exist_ok=True)
+    checkpoint_path = os.path.join(out_dir, "checkpoint.json")
 
-    # 初始化种群：默认参数 + 随机个体
-    population = [DEFAULT_PARAMS]
-    for _ in range(args.pop - 1):
-        population.append(random_params())
+    # 初始化或恢复
+    start_gen = 1
+    if args.resume and os.path.exists(checkpoint_path):
+        start_gen, population, best_ever, best_ever_fitness = load_checkpoint(checkpoint_path)
+        start_gen += 1
+        print(f"[INFO] 从第 {start_gen} 代恢复，历史最优胜率={best_ever_fitness:.3f}")
+    else:
+        population = [DEFAULT_PARAMS] + [random_params() for _ in range(args.pop - 1)]
+        best_ever = DEFAULT_PARAMS
+        best_ever_fitness = 0.0
 
-    best_ever = DEFAULT_PARAMS
-    best_ever_fitness = 0.0
+    deadline = time.time() + args.time_limit * 60 if args.time_limit > 0 else None
 
     print(f"=== AGA 自动调参 ===")
-    print(f"种群={args.pop}, 代数={args.gen}, 深度={args.depth}, "
-          f"每对局数={args.games}, 进程={args.workers}")
-    print()
+    print(f"种群={args.pop}, 深度={args.depth}, 每对局数={args.games}, 进程={args.workers}")
+    if deadline:
+        print(f"时间限制={args.time_limit:.0f}分钟")
+    print("按 Ctrl+C 可随时安全退出（当前代完成后保存）\n")
 
-    for gen in range(1, args.gen + 1):
+    for gen in range(start_gen, args.gen + 1):
+        if _stop_requested:
+            break
+        if deadline and time.time() >= deadline:
+            print(f"[INFO] 已达时间限制 {args.time_limit:.0f} 分钟，停止训练。")
+            break
+
         t0 = time.time()
         fitness = run_tournament(
             population, args.depth, args.move_limit, args.games, args.workers)
@@ -272,27 +319,22 @@ def main():
             best_ever = best_params
             best_ever_fitness = best_fit
 
-        # 保存本代最佳
-        gen_path = os.path.join(out_dir, f"gen_{gen:03d}.json")
-        best_params.save(gen_path)
-
-        # 保存全局最优
+        # 保存本代最佳 + 全局最优 + checkpoint
+        best_params.save(os.path.join(out_dir, f"gen_{gen:03d}.json"))
         best_ever.save(os.path.join(out_dir, "best_params.json"))
+        save_checkpoint(checkpoint_path, gen, population, best_ever, best_ever_fitness)
 
-        print(f"Gen {gen:3d}/{args.gen} | "
-              f"best={best_fit:.3f} avg={avg_fit:.3f} | "
-              f"time={elapsed:.1f}s | "
-              f"chariot={best_params.w_chariot} "
-              f"cannon={best_params.w_cannon} "
-              f"horse={best_params.w_horse}")
+        remaining = f" | 剩余≈{(deadline - time.time()) / 60:.1f}min" if deadline else ""
+        print(f"Gen {gen:3d} | best={best_fit:.3f} avg={avg_fit:.3f} | "
+              f"time={elapsed:.1f}s{remaining} | "
+              f"chariot={best_params.w_chariot} cannon={best_params.w_cannon} horse={best_params.w_horse}")
 
-        # 进化
         population = evolve(population, fitness)
 
-    print(f"\n=== 调参完成 ===")
+    print(f"\n=== 训练结束 ===")
     print(f"全局最优胜率: {best_ever_fitness:.3f}")
-    print(f"最优参数: {best_ever.to_dict()}")
-    print(f"已保存至 {out_dir}/best_params.json")
+    print(f"最优参数已保存至 {out_dir}/best_params.json")
+    print(f"断点已保存至 {checkpoint_path}，下次用 --resume 继续")
 
 
 if __name__ == "__main__":

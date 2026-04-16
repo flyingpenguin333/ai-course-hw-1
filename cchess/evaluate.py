@@ -19,9 +19,10 @@
 """
 
 import json
-from dataclasses import dataclass, field, asdict, fields
+from dataclasses import dataclass, asdict, fields
 from .cctypes import Player, Point, PieceType
 from .ccmoves import get_piece_moves, in_palace
+from .ccboard import Move
 
 __all__ = ["evaluate", "evaluate_v2", "evaluate_v3",
            "EvalParams", "DEFAULT_PARAMS", "MATE_SCORE"]
@@ -31,15 +32,25 @@ MATE_SCORE = 100_000
 
 @dataclass
 class EvalParams:
-    """评估函数可调参数, 共25个权重。"""
+    """评估函数可调参数, 共25个权重。
+
+    子力价值初始值采用 PDF04 Table II：
+    - Chariot (车): 2000
+    - Cannon (炮): 950
+    - Horse (马): 950
+    - Advisor (士): 350
+    - Elephant (象): 350
+    - Pawn (卒): 300
+    """
     # MATL: 子力价值 (7个)
-    w_chariot: int = 900
-    w_cannon: int = 450
-    w_horse: int = 400
-    w_advisor: int = 200
-    w_elephant: int = 200
-    w_pawn: int = 100
-    w_pawn_crossed: int = 100   # 过河兵额外加成
+    # PDF04 Table II 初始值
+    w_chariot: int = 2000
+    w_cannon: int = 950
+    w_horse: int = 950
+    w_advisor: int = 350
+    w_elephant: int = 350
+    w_pawn: int = 300
+    w_pawn_crossed: int = 100   # 过河兵额外加成（PDF04未明确，保留常识值）
 
     # MOB: 机动性 (7个权重，每种棋子类型一个)
     w_mob_chariot: float = 0.0
@@ -150,7 +161,7 @@ _GENERAL_TABLE = [
     [ 0,  0,  0,  0,  0,  0,  0,  0,  0],
     [ 0,  0,  0,  0,  0,  0,  0, 0,  0],
     [ 0,  0,   0, 0,  0,  0,  0,  0,  0],
-    [ 0, 0,  0, 0, 0, 0, 0, 0, 0, 0],
+    [ 0, 0,  0, 0, 0, 0, 0, 0, 0],
     [ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     [ 0,  0, 0, 0, 0, 0, 0, 0, 0, 0],
 ]
@@ -313,7 +324,7 @@ def _spc_score(board, player, params):
         PieceType.CHARIOT: 0, PieceType.HORSE: 0, PieceType.CANNON: 0,
         PieceType.ADVISOR: 0, PieceType.ELEPHANT: 0,
     }
-    for pt, pc in board._grid.items():
+    for pt, pc in list(board._grid.items()):
         if pc.player != player or pc.piece_type not in safe_checks_by_type:
             continue
         for dest in get_piece_moves(pc, pt, board):

@@ -40,6 +40,8 @@ class GameStats:
     agent1_color: str  # 'red' or 'black'
     winner: str  # 'agent1', 'agent2', or 'draw'
     num_moves: int
+    move_count_1: int   # agent1 实际走的步数
+    move_count_2: int   # agent2 实际走的步数
     total_time_1: float
     total_time_2: float
     total_nodes_1: int  # 对于 MCTS 是模拟次数
@@ -166,6 +168,8 @@ def play_game(collector1, collector2, move_limit=200, verbose=False):
         agent1_color='red',
         winner=winner_str,
         num_moves=move_count,
+        move_count_1=collector1.move_count,
+        move_count_2=collector2.move_count,
         total_time_1=collector1.total_time,
         total_time_2=collector2.total_time,
         total_nodes_1=collector1.total_nodes,
@@ -245,7 +249,7 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
                 all_stats.append(game_stats)
 
                 # 更新汇总统计
-                _update_summary(agent_summary, name1, name2, game_stats, g % 2 == 0)
+                _update_summary(agent_summary, game_stats)
 
                 if verbose:
                     winner = game_stats.winner
@@ -307,40 +311,37 @@ def run_round_robin(agents_config: Dict[str, Any], games_per_pair: int,
     return agent_stats_list, all_stats
 
 
-def _update_summary(summary, name1, name2, game_stats, agent1_is_red):
+def _update_summary(summary, game_stats):
     """更新汇总统计"""
-    # 根据先后手确定哪个agent对应哪个颜色
-    if agent1_is_red:
-        red_name, black_name = name1, name2
-    else:
-        red_name, black_name = name2, name1
+    # 直接从 game_stats 读取实际的 agent 名字（避免 name1/name2 顺序与 collector 顺序不一致的问题）
+    a1_name = game_stats.agent1_name
+    a2_name = game_stats.agent2_name
 
-    # 更新统计
-    for name, time, nodes in [(red_name, game_stats.total_time_1, game_stats.total_nodes_1),
-                               (black_name, game_stats.total_time_2, game_stats.total_nodes_2)]:
+    # 更新时间/节点/步数/深度统计
+    for name, time, nodes, moves, depth in [
+        (a1_name, game_stats.total_time_1, game_stats.total_nodes_1,
+         game_stats.move_count_1, game_stats.avg_depth_1),
+        (a2_name, game_stats.total_time_2, game_stats.total_nodes_2,
+         game_stats.move_count_2, game_stats.avg_depth_2),
+    ]:
         summary[name]['total_time'] += time
         summary[name]['total_nodes'] += nodes
-        summary[name]['total_moves'] += game_stats.num_moves
+        summary[name]['total_moves'] += moves
+        if depth is not None:
+            summary[name]['total_depth'] += depth * moves
+            summary[name]['depth_count'] += moves
 
     # 胜负统计
     winner = game_stats.winner
     if winner == 'draw':
-        summary[red_name]['draws'] += 1
-        summary[black_name]['draws'] += 1
+        summary[a1_name]['draws'] += 1
+        summary[a2_name]['draws'] += 1
     elif winner == 'agent1':
-        if agent1_is_red:
-            summary[red_name]['wins'] += 1
-            summary[black_name]['losses'] += 1
-        else:
-            summary[black_name]['wins'] += 1
-            summary[red_name]['losses'] += 1
+        summary[a1_name]['wins'] += 1
+        summary[a2_name]['losses'] += 1
     else:  # agent2
-        if agent1_is_red:
-            summary[black_name]['wins'] += 1
-            summary[red_name]['losses'] += 1
-        else:
-            summary[red_name]['wins'] += 1
-            summary[black_name]['losses'] += 1
+        summary[a2_name]['wins'] += 1
+        summary[a1_name]['losses'] += 1
 
 
 def print_results(agent_stats: List[AgentStats]):
@@ -419,7 +420,7 @@ def main():
     print(f"Output: {args.output}/")
 
     # 运行循环赛
-    agent_stats, all_stats = run_round_robin(
+    agent_stats, _ = run_round_robin(
         agents_config, args.games, args.output,
         verbose=not args.quiet, pair_filter=pair_filter
     )

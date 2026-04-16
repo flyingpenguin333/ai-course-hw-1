@@ -24,12 +24,6 @@ AI 主要辅助内容：
 
 ```
 ai-course-hw-1/
-├── docs/                          # 文档
-│   ├── homework.pdf               # 作业要求 PDF
-│   ├── README.md                  # 研究论文索引
-│   ├── 01_*.md, 02_*.md, 03_*.md  # 评估函数相关研究论文
-│   └── PDF01_*.md, PDF02_*.md     # PDF 版本论文
-│
 ├── cchess/                        # 中国象棋规则引擎
 │   ├── __init__.py                # 模块导出
 │   ├── cctypes.py                 # Player, Point, Piece, PieceType
@@ -39,14 +33,30 @@ ai-course-hw-1/
 │
 ├── agents/                        # AI 智能体
 │   ├── __init__.py
-│   ├── chess_random_agent.py      # 第一小问：随机 AI
-│   └── chess_alphabeta_agent.py   # 第二小问：Alpha-Beta 搜索 AI
+│   ├── chess_random_agent.py      # Q1: 随机 AI
+│   ├── chess_alphabeta_agent.py   # Q2: Alpha-Beta 搜索 AI
+│   ├── chess_minimax_agent.py     # Q3: Minimax 对照
+│   └── chess_mcts_agent.py        # Q3: MCTS 跨范式
+│
+├── experiments/                   # Q3 实验框架
+│   ├── run_tournament.py          # 锦标赛对弈脚本
+│   ├── analyze_results.py        # 结果分析工具
+│   └── results/                  # 实验结果数据
+│
+├── docs/                          # 文档
+│   ├── homework.pdf               # 作业要求 PDF
+│   ├── homework.md                # 作业要求 MD
+│   ├── README.md                  # 文档索引
+│   ├── Q1第一小问报告.md           # Q1 实验报告
+│   ├── Q2第二小问报告.md           # Q2 实验报告
+│   ├── Q3_算法对比实验分析报告.md   # Q3 算法对比报告
+│   ├── Q3_EVAL7评估函数设计.md      # Q3 评估函数设计
+│   └── papers/                    # 研究论文
 │
 ├── play_chess.py                  # 象棋对弈脚本（命令行）
+├── chess_gui.py                   # PyQt 图形界面
 ├── tune_params.py                 # 遗传算法参数自动调优
 ├── tuning_results/                # 调优结果
-│   ├── best_params.json           # 最优参数
-│   └── gen_001.json, gen_002.json # 历代调优数据
 │
 └── README.md                      # 本文件
 ```
@@ -218,11 +228,11 @@ python tune_params.py
 
 - **第一小问**：规则框架与随机AI（45分）
 - **第二小问**：搜索AI（25分）
-- **图形化界面**（15分）- 待实现
+- **图形化界面**（15分）- 已实现
 - **实验报告**（15分）
 - **第三小问**：扩展功能（选做，20分）
-  - 更复杂的评估函数 ✓
-  - 多种搜索算法对比实验与分析 ✓
+  - 更复杂的评估函数
+  - 多种搜索算法对比实验与分析
 
 ---
 

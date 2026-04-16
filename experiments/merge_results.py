@@ -32,6 +32,8 @@ def load_game_details(csv_path):
                 agent1_color=row['agent1_color'],
                 winner=row['winner'],
                 num_moves=int(row['num_moves']),
+                move_count_1=int(row['move_count_1']) if 'move_count_1' in row else (int(row['num_moves']) + 1) // 2,
+                move_count_2=int(row['move_count_2']) if 'move_count_2' in row else int(row['num_moves']) // 2,
                 total_time_1=float(row['total_time_1']),
                 total_time_2=float(row['total_time_2']),
                 total_nodes_1=int(row['total_nodes_1']),
@@ -53,11 +55,16 @@ def recompute_summary(all_stats):
         name1, name2 = gs.agent1_name, gs.agent2_name
         agent1_is_red = (gs.agent1_color == 'red')
 
-        for name, t, n in [(name1, gs.total_time_1, gs.total_nodes_1),
-                           (name2, gs.total_time_2, gs.total_nodes_2)]:
+        for name, t, n, moves, depth in [
+            (name1, gs.total_time_1, gs.total_nodes_1, gs.move_count_1, gs.avg_depth_1),
+            (name2, gs.total_time_2, gs.total_nodes_2, gs.move_count_2, gs.avg_depth_2),
+        ]:
             agent_summary[name]['total_time'] += t
             agent_summary[name]['total_nodes'] += n
-            agent_summary[name]['total_moves'] += gs.num_moves
+            agent_summary[name]['total_moves'] += moves
+            if depth is not None:
+                agent_summary[name]['total_depth'] += depth * moves
+                agent_summary[name]['depth_count'] += moves
 
         winner = gs.winner
         red_name = name1 if agent1_is_red else name2

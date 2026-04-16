@@ -16,19 +16,19 @@ from PyQt6.QtWidgets import (
     QHBoxLayout, QLabel, QPushButton, QComboBox,
     QMessageBox, QStackedWidget
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPoint
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QPoint, QTimer
 from PyQt6.QtGui import QPainter, QColor, QPen, QFont, QBrush
 
 from cchess import GameState, Player, Point, PieceType, Move
 
 # 棋子文字映射（来自 play_chess.py）
 PIECE_CHARS = {
-    (Player.red, PieceType.GENERAL):  '帅',
+    (Player.red, PieceType.GENERAL):  '帥',
     (Player.red, PieceType.ADVISOR):  '仕',
     (Player.red, PieceType.ELEPHANT): '相',
     (Player.red, PieceType.HORSE):    '馬',
     (Player.red, PieceType.CHARIOT):  '車',
-    (Player.red, PieceType.CANNON):   '砲',
+    (Player.red, PieceType.CANNON):   '炮',
     (Player.red, PieceType.PAWN):     '兵',
     (Player.black, PieceType.GENERAL):  '将',
     (Player.black, PieceType.ADVISOR):  '士',
@@ -60,6 +60,7 @@ class ChessBoardWidget(QWidget):
 
     # 布局常量
     MARGIN = 40
+    CAPTURED_AREA_WIDTH = 200  # 被吃棋子区域宽度
     CELL_SIZE = 60
     PIECE_RADIUS = 25
 
@@ -68,12 +69,28 @@ class ChessBoardWidget(QWidget):
         self.game_state: Optional[GameState] = None
         self.selected: Optional[Point] = None
         self.legal_moves: list = []
-        self.setMinimumSize(600, 700)
+        self.setMinimumSize(
+            (9 - 1) * self.CELL_SIZE + self.CAPTURED_AREA_WIDTH * 2 + self.MARGIN * 2,
+            (10 - 1) * self.CELL_SIZE + self.MARGIN * 2
+        )
+        self.last_move: Optional[Move] = None  # 最后一步走法
+        self.red_captured = []    # 红方被吃的棋子
+        self.black_captured = []  # 黑方被吃的棋子
+        self._thinking_from = None  # AI 正在思考的棋子位置
 
-    def set_game_state(self, state: GameState):
+    def set_game_state(self, state: GameState, clear_selection=True, last_move=None,
+                      red_captured=None, black_captured=None, thinking_from=None):
         self.game_state = state
-        self.selected = None
-        self.legal_moves = []
+        if clear_selection:
+            self.selected = None
+            self.legal_moves = []
+        if last_move is not None:
+            self.last_move = last_move
+        if red_captured is not None:
+            self.red_captured = red_captured
+        if black_captured is not None:
+            self.black_captured = black_captured
+        self._thinking_from = thinking_from
         self.update()
 
     def set_selected(self, point: Optional[Point], legal_moves: list = None):
@@ -89,24 +106,20 @@ class ChessBoardWidget(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # 绘制棋盘
-        self._draw_board(painter)
-
-        # 绘制棋子
-        self._draw_pieces(painter)
-
-        # 绘制选中状态和合法走法
-        self._draw_overlays(painter)
+        self._draw_board(painter)           # 1. 先画棋盘背景（fillRect 在这里）
+        self._draw_captured_pieces(painter) # 2. 再画被吃棋子（不会被背景覆盖）
+        self._draw_pieces(painter)          # 3. 画棋盘上的棋子
+        self._draw_overlays(painter)        # 4. 画高亮
 
     def _draw_board(self, painter: QPainter):
         """绘制棋盘格子"""
         # 背景
         painter.fillRect(0, 0, self.width(), self.height(), QColor(240, 230, 210))
 
-        # 棋盘边框
+        # 使用统一的居中坐标
+        x0, y0 = self._get_board_offset()
         board_width = (self.game_state.board.NUM_COLS - 1) * self.CELL_SIZE
         board_height = (self.game_state.board.NUM_ROWS - 1) * self.CELL_SIZE
-        x0, y0 = self.MARGIN, self.MARGIN
 
         # 外框
         painter.setPen(QPen(QColor(101, 67, 33), 3))
@@ -135,6 +148,71 @@ class ChessBoardWidget(QWidget):
                         Qt.AlignmentFlag.AlignCenter, "楚 河")
         painter.drawText(x0 + 3 * board_width // 4 - 30, river_y1, 100, self.CELL_SIZE,
                         Qt.AlignmentFlag.AlignCenter, "汉 界")
+
+    def _draw_captured_pieces(self, painter: QPainter):
+        """绘制被吃掉的棋子（在棋盘左侧）"""
+        if not self.red_captured and not self.black_captured:
+            return
+
+        try:
+            board_x, board_y = self._get_board_offset()
+        except Exception:
+            return
+
+        board_height = (self.game_state.board.NUM_ROWS - 1) * self.CELL_SIZE
+
+        # 被吃棋子区域：紧贴棋盘左侧
+        x0 = board_x - self.CAPTURED_AREA_WIDTH + 5
+        y0 = board_y
+        width = self.CAPTURED_AREA_WIDTH - 10
+        height = board_height
+
+        # 背景
+        painter.fillRect(x0, y0, width, height, QColor(230, 220, 200))
+
+        # 标题
+        painter.setPen(QPen(QColor(101, 67, 33), 2))
+        font = QFont("SimHei", 12)
+        painter.setFont(font)
+
+        red_y_start = y0 + 20
+        painter.drawText(x0, red_y_start - 22, width, 20, Qt.AlignmentFlag.AlignCenter, "红方被吃")
+
+        black_y_start = y0 + height // 2 + 20
+        painter.drawText(x0, black_y_start - 22, width, 20, Qt.AlignmentFlag.AlignCenter, "黑方被吃")
+
+        # 棋子尺寸
+        small_r = int(self.PIECE_RADIUS * 0.65)
+        piece_size = small_r * 2
+        gap = 6
+
+        for i, piece_type in enumerate(self.red_captured):
+            col, row = i % 4, i // 4
+            x = x0 + 10 + col * (piece_size + gap)
+            y = red_y_start + row * (piece_size + gap)
+            if y + piece_size > black_y_start - 28:
+                break
+            painter.setBrush(QBrush(QColor(245, 222, 179)))
+            painter.setPen(QPen(QColor(180, 80, 80), 2))
+            painter.drawEllipse(x, y, piece_size, piece_size)
+            painter.setPen(QPen(QColor(200, 0, 0), 2))
+            painter.setFont(QFont("SimHei", 10, QFont.Weight.Bold))
+            painter.drawText(x, y, piece_size, piece_size, Qt.AlignmentFlag.AlignCenter,
+                             PIECE_CHARS[(Player.red, piece_type)])
+
+        for i, piece_type in enumerate(self.black_captured):
+            col, row = i % 4, i // 4
+            x = x0 + 10 + col * (piece_size + gap)
+            y = black_y_start + row * (piece_size + gap)
+            if y + piece_size > y0 + height - 5:
+                break
+            painter.setBrush(QBrush(QColor(245, 222, 179)))
+            painter.setPen(QPen(QColor(80, 80, 80), 2))
+            painter.drawEllipse(x, y, piece_size, piece_size)
+            painter.setPen(QPen(QColor(50, 50, 50), 2))
+            painter.setFont(QFont("SimHei", 10, QFont.Weight.Bold))
+            painter.drawText(x, y, piece_size, piece_size, Qt.AlignmentFlag.AlignCenter,
+                             PIECE_CHARS[(Player.black, piece_type)])
 
     def _draw_pieces(self, painter: QPainter):
         """绘制所有棋子"""
@@ -181,10 +259,22 @@ class ChessBoardWidget(QWidget):
 
     def _draw_overlays(self, painter: QPainter):
         """绘制选中状态和合法走法"""
-        # 选中高亮
+        # AI 正在思考的棋子（橙色高亮）
+        if self._thinking_from:
+            x, y = self._board_to_screen(self._thinking_from)
+            painter.setPen(QPen(QColor(255, 165, 0), 3))  # 橙色
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawRect(
+                x - self.PIECE_RADIUS - 3,
+                y - self.PIECE_RADIUS - 3,
+                self.PIECE_RADIUS * 2 + 6,
+                self.PIECE_RADIUS * 2 + 6
+            )
+
+        # 选中高亮（绿色）
         if self.selected:
             x, y = self._board_to_screen(self.selected)
-            painter.setPen(QPen(QColor(0, 255, 0), 3))
+            painter.setPen(QPen(QColor(0, 255, 0), 3))  # 绿色
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawRect(
                 x - self.PIECE_RADIUS - 5,
@@ -200,16 +290,26 @@ class ChessBoardWidget(QWidget):
             x, y = self._board_to_screen(move.to_point)
             painter.drawEllipse(x - 5, y - 5, 10, 10)
 
+    def _get_board_offset(self):
+        """计算棋盘的偏移量（棋盘本身居中）"""
+        board_width = (self.game_state.board.NUM_COLS - 1) * self.CELL_SIZE
+        board_height = (self.game_state.board.NUM_ROWS - 1) * self.CELL_SIZE
+        board_x = (self.width() - board_width) // 2   # 棋盘水平居中
+        board_y = (self.height() - board_height) // 2  # 棋盘垂直居中
+        return board_x, board_y
+
     def _board_to_screen(self, point: Point):
         """棋盘坐标 → 屏幕坐标"""
-        x = self.MARGIN + point.col * self.CELL_SIZE
-        y = self.MARGIN + (self.game_state.board.NUM_ROWS - 1 - point.row) * self.CELL_SIZE
+        board_x, board_y = self._get_board_offset()
+        x = board_x + point.col * self.CELL_SIZE
+        y = board_y + (self.game_state.board.NUM_ROWS - 1 - point.row) * self.CELL_SIZE
         return x, y
 
     def _screen_to_board(self, x: int, y: int):
         """屏幕坐标 → 棋盘坐标"""
-        col = round((x - self.MARGIN) / self.CELL_SIZE)
-        row = self.game_state.board.NUM_ROWS - 1 - round((y - self.MARGIN) / self.CELL_SIZE)
+        board_x, board_y = self._get_board_offset()
+        col = round((x - board_x) / self.CELL_SIZE)
+        row = self.game_state.board.NUM_ROWS - 1 - round((y - board_y) / self.CELL_SIZE)
         return Point(row, col)
 
     def mousePressEvent(self, event):
@@ -251,6 +351,10 @@ class ChessMainWindow(QMainWindow):
         self.ai_agent_fn = None  # AI 函数（人机模式）
         self.red_ai_fn = None    # 红方 AI 函数（AI vs AI 模式）
         self.black_ai_fn = None  # 黑方 AI 函数（AI vs AI 模式）
+
+        # 被吃棋子列表
+        self.red_captured = []    # 红方被吃的棋子（棋子类型列表）
+        self.black_captured = []  # 黑方被吃的棋子（棋子类型列表）
 
         self.setup_ui()
 
@@ -330,6 +434,11 @@ class ChessMainWindow(QMainWindow):
 
         # 按钮栏
         button_layout = QHBoxLayout()
+
+        self.start_btn = QPushButton("开始")
+        self.start_btn.clicked.connect(self.start_game)
+        button_layout.addWidget(self.start_btn)
+
         self.restart_btn = QPushButton("重新开始")
         self.restart_btn.clicked.connect(self.restart_game)
         button_layout.addWidget(self.restart_btn)
@@ -349,9 +458,11 @@ class ChessMainWindow(QMainWindow):
         button_layout.addStretch()
         main_layout.addLayout(button_layout)
 
-        # 初始化 AI
+        # 初始化 AI 函数（不触发对弈）
         self.on_ai_changed(0)
         self.on_ai_ai_changed()
+        # 显示初始棋盘，等待用户点击开始
+        self.restart_game()
 
     def on_mode_changed(self, index):
         """对战模式改变"""
@@ -369,7 +480,7 @@ class ChessMainWindow(QMainWindow):
             self.pause_btn.setVisible(True)
             self.pause_btn.setEnabled(True)
 
-        self.restart_game()
+        # 不自动重新开始，等待用户点击重新开始按钮
 
     def on_ai_ai_changed(self, index=None):
         """AI vs AI 模式下的 AI 选择改变"""
@@ -410,8 +521,7 @@ class ChessMainWindow(QMainWindow):
             agent = ChessMCTSAgent(time_limit=5.0, verbose=False)
             self.black_ai_fn = agent.select_move
 
-        if self.game_mode == self.MODE_AI_VS_AI:
-            self.restart_game()
+        # 不自动重新开始，等待用户点击重新开始按钮
 
     def toggle_pause(self):
         """切换 AI vs AI 暂停状态"""
@@ -450,30 +560,45 @@ class ChessMainWindow(QMainWindow):
             return
 
         self.ai_agent_fn = agent.select_move
-        self.restart_game()
+        # 不自动重新开始，等待用户点击重新开始按钮
 
     def restart_game(self):
-        """重新开始游戏"""
+        """重置棋盘到初始状态，等待点击开始"""
         self.game_state = GameState.new_game()
         self.history = [self.game_state]
         self.ai_vs_ai_paused = False
         self.pause_btn.setText("暂停")
+        self.pause_btn.setEnabled(False)
+        self.red_captured = []
+        self.black_captured = []
 
         if self.game_mode == self.MODE_HUMAN_VS_AI:
-            # 人机模式
             self.is_player_turn = (self.game_state.next_player == self.player_color)
             self.undo_btn.setEnabled(False)
         else:
-            # AI vs AI 模式
             self.is_player_turn = False
 
-        self.board_widget.set_game_state(self.game_state)
+        self.board_widget.set_game_state(
+            self.game_state,
+            red_captured=self.red_captured,
+            black_captured=self.black_captured
+        )
+        self.start_btn.setEnabled(True)
+        self.status_label.setText("状态: 点击「开始」开始对弈")
+        current_player = self.game_state.next_player
+        self.turn_label.setText(f"当前轮次: {'红方' if current_player == Player.red else '黑方'}")
+
+    def start_game(self):
+        """开始对弈"""
+        self.start_btn.setEnabled(False)
+
+        if self.game_mode == self.MODE_AI_VS_AI:
+            self.pause_btn.setEnabled(True)
+
         self.update_status()
 
-        # 如果 AI 先手（人机模式）或 AI vs AI 模式
+        # 触发 AI（人机模式 AI 先手，或 AI vs AI 模式）
         if not self.is_player_turn and not self.game_state.is_over():
-            if self.game_mode == self.MODE_AI_VS_AI:
-                self.pause_btn.setEnabled(True)
             self.trigger_ai_move()
 
     def update_status(self):
@@ -553,31 +678,65 @@ class ChessMainWindow(QMainWindow):
 
     def make_move(self, move: Move):
         """执行走法"""
+        # 保存最后一步走法
+        last_move = move
+
+        # 检测是否吃子
+        captured_piece = self.game_state.board.get(move.to_point)
+        if captured_piece is not None:
+            # 记录被吃的棋子
+            if captured_piece.player == Player.red:
+                # 红方棋子被黑方吃掉，添加到红方被吃列表
+                self.red_captured.append(captured_piece.piece_type)
+            else:
+                # 黑方棋子被红方吃掉，添加到黑方被吃列表
+                self.black_captured.append(captured_piece.piece_type)
+
         self.game_state = self.game_state.apply_move(move)
         self.history.append(self.game_state)
-        self.board_widget.set_game_state(self.game_state)
-        self.update_status()
+
+        # 更新棋盘，传入被吃棋子信息，清除 thinking_from
+        self.board_widget.set_game_state(
+            self.game_state,
+            last_move=last_move,
+            red_captured=self.red_captured,
+            black_captured=self.black_captured,
+            thinking_from=None  # 清除高亮
+        )
 
         # 检查游戏是否结束
         if self.game_state.is_over():
+            self.update_status()
             self.show_game_over()
             return
 
-        # 切换轮次判断
+        # 先切换轮次判断，再更新状态显示
         if self.game_mode == self.MODE_HUMAN_VS_AI:
             self.is_player_turn = not self.is_player_turn
         else:
             # AI vs AI 模式
             pass
 
+        # 切换轮次后再更新状态，确保显示正确
+        self.update_status()
+
         # 触发 AI 落子（人机模式的 AI 回合，或 AI vs AI 模式）
-        if self.game_mode == self.MODE_AI_VS_AI or not self.is_player_turn:
-            if not self.ai_vs_ai_paused and not self.game_state.is_over():
-                self.trigger_ai_move()
+        if (self.game_mode == self.MODE_AI_VS_AI or not self.is_player_turn) and not self.game_state.is_over():
+            if not self.ai_vs_ai_paused:
+                # AI vs AI 模式下，延迟触发下一个 AI，让棋盘显示更清晰
+                if self.game_mode == self.MODE_AI_VS_AI:
+                    QTimer.singleShot(500, self.trigger_ai_move)  # 增加到 500ms
+                else:
+                    QTimer.singleShot(50, self.trigger_ai_move)  # 人机模式也稍微延迟
 
     def trigger_ai_move(self):
         """触发 AI 走棋"""
+        # 防止重复触发
         if self.ai_thread is not None and self.ai_thread.isRunning():
+            return
+
+        # 检查游戏状态
+        if self.game_state.is_over() or self.ai_vs_ai_paused:
             return
 
         # 选择当前玩家的 AI
@@ -591,15 +750,42 @@ class ChessMainWindow(QMainWindow):
             # 人机模式
             ai_fn = self.ai_agent_fn
 
-        self.update_status()
+        # 显示思考中状态
+        if self.game_mode == self.MODE_AI_VS_AI or not self.is_player_turn:
+            self.update_status()
+
+        # 创建并启动 AI 线程
         self.ai_thread = GameThread(self.game_state, ai_fn)
         self.ai_thread.move_ready.connect(self.on_ai_move)
+        # 线程结束后自动清理
+        self.ai_thread.finished.connect(lambda: setattr(self, 'ai_thread', None))
         self.ai_thread.start()
 
     def on_ai_move(self, move: Move):
-        """AI 走棋完成"""
-        if move and move in self.game_state.legal_moves():
+        """AI 走棋完成：先显示橙色框，300ms 后执行移动"""
+        if move is None:
+            self.update_status()
+            return
+        # 高亮即将移动的棋子（橙色框），同时保留被吃棋子列表
+        self.board_widget.set_game_state(
+            self.game_state,
+            clear_selection=False,
+            thinking_from=move.from_point,
+            red_captured=self.red_captured,
+            black_captured=self.black_captured
+        )
+        QTimer.singleShot(300, lambda: self._execute_ai_move(move))
+
+    def _execute_ai_move(self, move: Move):
+        """实际执行 AI 的移动"""
+        # 检查走法是否在合法走法列表中
+        legal_moves = self.game_state.legal_moves()
+        if move in legal_moves:
             self.make_move(move)
+        else:
+            # AI 返回了无效走法，跳过
+            print(f"[WARN] AI 返回无效走法: {move}")
+            self.update_status()
 
     def undo_move(self):
         """悔棋（仅人机模式）"""
@@ -617,8 +803,44 @@ class ChessMainWindow(QMainWindow):
 
         self.game_state = self.history[-1]
         self.is_player_turn = (self.game_state.next_player == self.player_color)
-        self.board_widget.set_game_state(self.game_state)
+
+        # 重新计算被吃棋子列表
+        self._recalculate_captured_pieces()
+
+        self.board_widget.set_game_state(
+            self.game_state,
+            red_captured=self.red_captured,
+            black_captured=self.black_captured
+        )
         self.update_status()
+
+    def _recalculate_captured_pieces(self):
+        """重新计算被吃棋子列表（从初始状态到当前状态）"""
+        self.red_captured = []
+        self.black_captured = []
+
+        # 获取初始棋盘的所有棋子
+        initial_state = GameState.new_game()
+        initial_pieces = set()
+        for pt, piece in initial_state.board.pieces_for_player(Player.red):
+            initial_pieces.add((Player.red, piece.piece_type))
+        for pt, piece in initial_state.board.pieces_for_player(Player.black):
+            initial_pieces.add((Player.black, piece.piece_type))
+
+        # 获取当前棋盘的所有棋子
+        current_pieces = set()
+        for pt, piece in self.game_state.board.pieces_for_player(Player.red):
+            current_pieces.add((Player.red, piece.piece_type))
+        for pt, piece in self.game_state.board.pieces_for_player(Player.black):
+            current_pieces.add((Player.black, piece.piece_type))
+
+        # 被吃的棋子 = 初始 - 当前
+        captured = initial_pieces - current_pieces
+        for player, piece_type in captured:
+            if player == Player.red:
+                self.red_captured.append(piece_type)
+            else:
+                self.black_captured.append(piece_type)
 
     def show_game_over(self):
         """显示游戏结束"""
